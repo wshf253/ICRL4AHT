@@ -40,3 +40,14 @@ build/
 *.txt
 *.DS_Store
 *.log
+# Local environment and experiment artifacts
+.venv/
+.env
+.env.*
+!.env.example
+outputs/
+videos/
+checkpoints/
+runtime_memory/
+wandb/
+.cache/

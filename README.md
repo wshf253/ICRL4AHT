@@ -1,3 +1,5 @@
+> 이 fork의 연구용 설치·heuristic 실행·영상 저장: [SETUP_RESEARCH.md](SETUP_RESEARCH.md)
+
 # ICRL4AHT: In-Context Reinforcement Learning for Ad Hoc Teamwork
 
 A JAX-based benchmark and dataset-generation pipeline for evaluating In-Context Reinforcement Learning (ICRL) algorithms in cooperative multi-agent settings.

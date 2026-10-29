@@ -19,8 +19,7 @@ classifiers = [
 
 dependencies = [
     # JAX AI stack v2025.2.5
-    "jax[cuda12]==0.5.3",
-    # "jax==0.5.3",
+    "jax==0.5.3",
     "chex==0.1.88",
     "flax==0.10.2",
     "ml_dtypes==0.4.0",
@@ -33,6 +32,8 @@ dependencies = [
     "distrax",
     "safetensors",
     "moviepy",
+    "imageio[ffmpeg]",
+    "pillow",
     "ffmpeg",
     "prettytable",
     "rliable",
@@ -51,3 +52,6 @@ include = ["agents*", "benchmarks*", "common*", "envs*", "marl*", "runners*", "s
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.yml", "*.json", "*.md", "*.jsonl"]
+
+[project.optional-dependencies]
+cuda12 = ["jax[cuda12]==0.5.3"]
