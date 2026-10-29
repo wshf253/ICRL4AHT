@@ -56,7 +56,7 @@ def contents(value):
     return ('P' if value & 1 else '') + ('C' if value & 2 else '') + ','.join(ingredients) or '-'
 
 
-def frame(state, layout, step, score):
+def frame(state, layout, step, score, access_label=None):
     """Full-state diagnostic view; never use these frames as partial observations."""
     grid = np.asarray(state.grid)
     h, w = grid.shape[:2]
@@ -64,7 +64,7 @@ def frame(state, layout, step, score):
     image = Image.new('RGB', (max(w * tile, 640), top + h * tile + 90), '#f7f7f7')
     draw = ImageDraw.Draw(image)
     draw.text((8, 6), f'{layout} | step {step} | shared return {score:g}', fill='black')
-    draw.text((8, 25), 'DEBUG: full state; both upstream heuristics have privileged access', fill='black')
+    draw.text((8, 25), access_label or 'DEBUG: full state; both upstream heuristics have privileged access', fill='black')
     labels = {0: '', 1: '#', 4: 'SERVE', 5: 'POT', 6: 'RECIPE', 7: 'BUTTON', 9: 'PLATES'}
     for y in range(h):
         for x in range(w):

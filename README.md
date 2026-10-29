@@ -1,3 +1,5 @@
+> RQ3 상대 정보 비교 + 기존 Qwen 서빙 재사용: [RQ3_EXPERIMENT.md](RQ3_EXPERIMENT.md)
+
 > 이 fork의 연구용 설치·heuristic 실행·영상 저장: [SETUP_RESEARCH.md](SETUP_RESEARCH.md)
 
 # ICRL4AHT: In-Context Reinforcement Learning for Ad Hoc Teamwork

@@ -48,7 +48,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agents*", "benchmarks*", "common*", "envs*", "marl*", "runners*", "scripts*", "teammate_generation*", "teammate_wrapper*"]
+include = ["agents*", "benchmarks*", "common*", "envs*", "marl*", "runners*", "scripts*", "teammate_generation*", "teammate_wrapper*", "research*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.yml", "*.json", "*.md", "*.jsonl"]
