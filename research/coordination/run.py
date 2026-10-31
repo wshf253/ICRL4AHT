@@ -73,7 +73,7 @@ def trial(args, env, client, seed, profile, condition, path):
     path.mkdir(parents=True, exist_ok=False)
     obs, state = initial_state(env, seed)
     init_hash = state_hash(state)
-    controllers = [Executor(env.layout.static_objects, i, args.max_job_steps) for i in range(2)]
+    controllers = [Executor(env.layout.static_objects, i, args.max_job_steps, seed) for i in range(2)]
     transition = jax.jit(env.step_env)
     history, decisions = [], []
     counters = Counter()
@@ -158,8 +158,18 @@ def trial(args, env, client, seed, profile, condition, path):
                 events = successful_events(before, state, acts, env.layout.static_objects)
                 for event in events:
                     counters[f"agent_{event['agent']}_{event['type']}"] += 1
+                static = env.layout.static_objects
                 for i in range(2):
                     counters[f'agent_{i}_stay_steps'] += int(acts[f'agent_{i}'] == 4)
+                    # Navigation diagnostic: a move toward free floor that did not
+                    # change position (agent collision/blocked). Turns are excluded.
+                    a = int(acts[f'agent_{i}'])
+                    if a < 4:
+                        dx, dy = ((1, 0), (0, 1), (-1, 0), (0, -1))[a]
+                        x0, y0 = int(before.agents.pos.x[i]), int(before.agents.pos.y[i])
+                        if int(static[y0+dy, x0+dx]) == 0 and (x0, y0) == (
+                                int(state.agents.pos.x[i]), int(state.agents.pos.y[i])):
+                            counters[f'agent_{i}_failed_move_steps'] += 1
                 record = {'step': step+1, 'actions': acts, 'jobs': jobs,
                           'rewards': {k: float(v) for k, v in rewards.items()},
                           'events': events, 'duplicate_demand': demand_conflict,

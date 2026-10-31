@@ -98,16 +98,20 @@ class Job:
     previous_kind: str = 'empty'
     interacted: bool = False
     attempted: str = ''
-    blocked_steps: int = 0
 
 
 class Executor:
-    def __init__(self, static_map, agent_id, max_job_steps=32):
+    def __init__(self, static_map, agent_id, max_job_steps=32, seed=0):
         self.static = np.asarray(static_map)
         self.agent_id = agent_id
         self.max_job_steps = max_job_steps
         self.job = None
         self.last_outcome = None
+        # Seeded randomness only breaks symmetric navigation conflicts. Both
+        # agents use the same rule; it never depends on profile or condition.
+        self.rng = np.random.default_rng([seed, agent_id])
+        self.pending_move = None  # (position, cell) of the last move into free floor
+        self.trail = deque(maxlen=3)
 
     def assign(self, task, view):
         self.job = Job(dict(task), previous_kind=inventory_kind(view['self']['inventory']))
@@ -136,31 +140,51 @@ class Executor:
 
     def _approach(self, target, view, interact=True):
         if target is None:
+            self.pending_move = None
             return int(Actions.stay)
         me = view['self']
         x, y = me['pos']
+        pos = (x, y)
+        bumped = self.pending_move is not None and self.pending_move[0] == pos
+        self.pending_move = None
         dx, dy = target[0]-x, target[1]-y
         if abs(dx)+abs(dy) == 1:
+            self.trail.clear()  # reached the station: navigation made progress
             for mx, my, act, direction in MOVES:
                 if (mx, my) == (dx, dy):
                     if me['direction'] != direction:
                         return act
                     return int(Actions.interact if interact else Actions.stay)
-        blocked = [o['pos'] for o in view['others']]
-        path = route(self.static, (x, y), target, blocked)
+        blocked = {tuple(o['pos']) for o in view['others']}
+        # Two identical deterministic planners in a symmetric situation repeat the
+        # same conflict forever: both step into the same free cell (the env cancels
+        # both moves), or both detour in mirror image (A-B-A). On such evidence,
+        # back off with probability 1/2 so exactly one agent proceeds in expectation.
+        self.trail.append(pos)
+        revisit = len(self.trail) == 3 and self.trail[0] == pos != self.trail[1]
+        path = route(self.static, pos, target, blocked)
         if path:
-            self.job.blocked_steps = 0
-            return path[0]
-        self.job.blocked_steps += 1
-        # Deterministic local yield for a visible blockage; identical ability for
-        # both profiles, asymmetric by ID only to avoid simultaneous swapping.
-        if self.job.blocked_steps >= 2 and self.job.age % 2 == self.agent_id % 2:
-            for mx, my, act, _ in MOVES:
-                nx, ny = x+mx, y+my
-                if 0 <= ny < self.static.shape[0] and 0 <= nx < self.static.shape[1]:
-                    if self.static[ny, nx] == 0 and [nx, ny] not in blocked:
-                        return act
+            if (bumped or revisit) and self.rng.random() < 0.5:
+                return int(Actions.stay)
+            return self._move(pos, path[0])
+        # No path: the partner occupies the target's only access cell or a choke
+        # point. If both wait for each other (e.g. each stands on the other's
+        # access cell), a random side-step from either one releases the deadlock.
+        if self.rng.random() < 0.5:
+            free = [act for mx, my, act, _ in MOVES
+                    if self._floor(x+mx, y+my) and (x+mx, y+my) not in blocked]
+            if free:
+                return self._move(pos, int(self.rng.choice(free)))
         return int(Actions.stay)
+
+    def _floor(self, x, y):
+        h, w = self.static.shape
+        return 0 <= x < w and 0 <= y < h and self.static[y, x] == 0
+
+    def _move(self, pos, action):
+        dx, dy = next((mx, my) for mx, my, act, _ in MOVES if act == action)
+        self.pending_move = (pos, (pos[0]+dx, pos[1]+dy))
+        return action
 
     def action(self, view):
         j = self.job

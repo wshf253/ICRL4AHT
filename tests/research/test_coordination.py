@@ -128,3 +128,25 @@ def test_http_adapter_and_error_accounting(env, tmp_path):
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def test_executor_breaks_symmetric_navigation_livelock(tmp_path):
+    # Regression: identical deterministic executors used to step into the same
+    # free cell forever (seed 0 delivery: one delivery in 200 steps) or yield and
+    # return in lockstep when each stood on the other's only access cell.
+    e = create_env(200, 'full')
+    args = SimpleNamespace(backend='scripted', steps=200, max_job_steps=32,
+                           observation='full', video=False)
+    for seed, profile in ((0, 'delivery'), (1, 'delivery'), (0, 'prep'), (2, 'prep')):
+        r = trial(args, e, None, seed, profile, 'none', tmp_path/f'{seed}_{profile}')
+        assert r['status'] == 'completed', r
+        assert r['correct_deliveries'] >= 5, r
+        rows = [json.loads(l) for l in (tmp_path/f'{seed}_{profile}/steps.jsonl').read_text().splitlines()]
+        stuck = longest = 0
+        prev = None
+        for row in rows:
+            moving = all(row['actions'][f'agent_{i}'] < 4 for i in range(2))
+            stuck = stuck+1 if moving and row['positions'] == prev else 0
+            longest = max(longest, stuck)
+            prev = row['positions']
+        assert longest < 8, (seed, profile, longest)
