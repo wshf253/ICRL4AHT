@@ -14,7 +14,7 @@ import traceback
 import jax
 import numpy as np
 
-from .scenario import (PROFILES, CONDITIONS, LAYOUT_TEXT, create_env, initial_state,
+from .scenario import (PROFILES, CONDITIONS, LAYOUT_TEXT, SUPPORTED_LAYOUTS, create_env, initial_state,
                        state_hash, primitive_key, partner_information)
 from .observation import decode_observation, planner_view, inventory_kind
 from .controller import Executor, candidates, preferred_task
@@ -229,6 +229,8 @@ def summarize(out):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--layout', choices=SUPPORTED_LAYOUTS, default='controlled')
+    p.add_argument('--start', choices=('controlled', 'empty'), default='controlled')
     p.add_argument('--backend', choices=('llm', 'scripted'), default='llm')
     p.add_argument('--base-url', default=os.environ.get('ICRL_LLM_BASE_URL', 'http://127.0.0.1:8000/v1'))
     p.add_argument('--model', default=os.environ.get('ICRL_LLM_MODEL', 'qwen35-27b'))
@@ -252,7 +254,7 @@ def main():
     args.out.mkdir(parents=True)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     metadata = {**vars(args), 'out': str(args.out), 'git_commit': revision,
-                'source_sha256': source_digest(), 'layout': LAYOUT_TEXT,
+                'source_sha256': source_digest(), 'layout_text': LAYOUT_TEXT if args.layout == 'controlled' else None,
                 'public_information': ['static map', 'fixed recipe 0,0,0', 'own pose'],
                 'partner_access': args.observation, 'ego_access': args.observation,
                 'intervention': 'supplied partner-priority description only',
@@ -262,7 +264,7 @@ def main():
     if client is not None:
         # Fail before any rollout when URL/model is misconfigured.
         client.check_model()
-    env = create_env(args.steps, args.observation)
+    env = create_env(args.steps, args.observation, args.layout, args.start)
     failed = False
     for seed in args.seeds:
         for profile in args.profiles:

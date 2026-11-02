@@ -150,3 +150,18 @@ def test_executor_breaks_symmetric_navigation_livelock(tmp_path):
             longest = max(longest, stuck)
             prev = row['positions']
         assert longest < 8, (seed, profile, longest)
+
+
+def test_layout_selection_and_initialization():
+    from research.coordination.scenario import SUPPORTED_LAYOUTS
+    for name in SUPPORTED_LAYOUTS:
+        for start in ('controlled', 'empty'):
+            e = create_env(20, 'full', name, start)
+            _, state = initial_state(e, 0)
+            grid = np.asarray(state.grid)
+            timers = grid[:, :, 2]
+            assert not np.any(timers[np.asarray(e.layout.static_objects) != 5])
+            assert np.count_nonzero(timers) == (start == 'controlled')
+            assert state_hash(state) == state_hash(initial_state(e, 0)[1])
+    with pytest.raises(ValueError):
+        create_env(layout_name='cramped_room_up')

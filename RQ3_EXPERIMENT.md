@@ -175,3 +175,11 @@ scripted 조건 동일성, HTTP 모델 연동 및 오류 보존을 검사한다.
 다음 단계는 결과에서 정보→선택→성능의 연결을 확인한 뒤, correct 조건의 외부 설명을
 반복 협업 경험에서 갱신한 상대 메모리로 교체하는 것이다. 그때 안정/일시적 제약/지속적
 변화 조건을 별도로 추가한다.
+
+## Layout selection
+
+The RQ3 runner and Qwen launcher accept `--layout controlled|cramped_room|asymm_advantages|coord_ring|forced_coord|counter_circuit`.
+Default `controlled` preserves the original custom map. All supported maps retain the fixed ingredient-0 recipe; multi-ingredient layouts are deliberately rejected until recipe-aware execution is implemented.
+`--start controlled` initializes one actual pot as cooking and, if present, another as partially filled. A one-pot map does not guarantee both work types are immediately available. `--start empty` uses the normal empty reset.
+Example: `lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --layout asymm_advantages --start empty --video`.
+Map switching does not add counter handoff skills: partitioned maps such as forced_coord can expose executor limitations and are not validated performance baselines.
