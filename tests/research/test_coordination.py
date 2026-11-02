@@ -184,3 +184,19 @@ def test_explicit_planner_state_encoding():
         c = planner_contents(dict(**inv(count, cooked=cooked), timer=timer), 'pot')
         assert c['status'] == status and c['remaining_cook_steps'] == timer
     assert planner_contents(None, 'pot') is None
+
+
+def test_role_matrix_pairing_and_censored_times():
+    from research.coordination.role_matrix import aggregate
+    rows = []
+    for partner in ('prep', 'delivery'):
+        for ego in ('prep', 'delivery'):
+            rows.append(dict(partner_profile=partner, ego_profile=ego, seed=0,
+                status='completed', initial_state_sha256='same', shared_return=20 if ego=='prep' else 40,
+                correct_deliveries=1 if ego=='prep' else 2,
+                target_reached=ego=='delivery', target_delivery_step=80 if ego=='delivery' else None))
+    result = aggregate(rows, [0])
+    assert all(p['delivery_minus_prep_return'] == 20 for p in result['paired_effects'])
+    assert all(p['delivery_minus_prep_target_steps'] is None for p in result['paired_effects'])
+    rows[0]['status'] = 'error'
+    assert len(aggregate(rows, [0])['excluded_pairs']) == 1

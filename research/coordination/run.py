@@ -83,7 +83,8 @@ def trial(args, env, client, seed, profile, condition, path):
     finished = False
     summary = {'seed': seed, 'partner_profile': profile, 'condition': condition,
                'initial_state_sha256': init_hash, 'backend': args.backend,
-               'observation': args.observation, 'status': 'running'}
+               'observation': args.observation, 'status': 'running',
+               'ego_profile': getattr(args, 'ego_profile', None)}
     dump(path/'summary.json', summary)
     try:
         with (path/'steps.jsonl').open('w') as steps_log, (path/'decisions.jsonl').open('w') as choices_log, (path/'llm.jsonl').open('w') as llm_log:
@@ -123,7 +124,7 @@ def trial(args, env, client, seed, profile, condition, path):
                     else:
                         # Intentionally ignores intervention text: validates mechanics,
                         # never manufactures a positive partner-information effect.
-                        task = preferred_task(menu, 'prep', current[0]['self']['pos'], env.layout.static_objects)
+                        task = preferred_task(menu, getattr(args, 'ego_profile', 'prep'), current[0]['self']['pos'], env.layout.static_objects)
                         choice = {'task_id': task['id'], 'partner_prediction': 'wait',
                                   'reason': 'Scripted plumbing check; ignores partner information.'}
                     task = next(c for c in menu if c['id'] == choice['task_id'])

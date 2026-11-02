@@ -193,3 +193,9 @@ and `remaining_cook_steps`. The recipe is a named count mapping. Unobserved
 contents remain null; no additional hidden state is exposed. Internal executor
 observations and task selection rules are unchanged. Config records schema 2.
 Re-run identical conditions to evaluate this representation correction separately.
+
+## Scripted role matrix (no LLM or GPU)
+
+Run `python -m research.coordination.role_matrix --layout counter_circuit --start empty --steps 400 --seeds 0 1 2 3 4 5 6 7 8 9 --out outputs/role_matrix`.
+This runs every combination of robot prep/delivery priority and partner prep/delivery priority with the same executor. Preference is a priority, not a strict role: both agents fall back to other work. Optional `--video` saves each rollout.
+`role_matrix.json` contains all trials, four cell means, matched-seed delivery-minus-prep robot effects, delivery timestamps, and time to `--target-deliveries` (default 4). Unreached targets have null times; report reach counts alongside conditional mean times. Failed trials are preserved and excluded from paired comparisons. This diagnoses partner-dependent strategy value within two heuristics, not optimal behavior or ToM. With empty resets seeds can share an identical initial state.
