@@ -57,19 +57,48 @@ def decode_observation(obs, static_map, pose, n=1, view_size=None):
     return {'self': self_info, 'others': others, 'cells': cells}
 
 
+def ingredient_counts(inv):
+    return {f'ingredient_{i}': int(count) for i, count in enumerate(inv['ingredients'])}
+
+
+def planner_agent(agent):
+    inv = agent['inventory']
+    kind = inventory_kind(inv)
+    holding = {'empty': 'empty', 'plate': 'empty_plate', 'dish': 'cooked_soup_on_plate'}.get(kind)
+    if kind == 'ingredient':
+        holding = next(f'ingredient_{i}' for i, count in enumerate(inv['ingredients']) if count)
+    return {'pos': list(agent['pos']),
+            'facing': ('up', 'down', 'right', 'left')[agent['direction']],
+            'holding': holding, 'ingredient_counts': ingredient_counts(inv)}
+
+
+def planner_contents(cell, kind):
+    if cell is None:
+        return None
+    counts = ingredient_counts(cell)
+    if kind == 'pot':
+        status = ('ready' if cell['cooked'] else 'cooking' if cell['timer'] > 0
+                  else 'empty' if sum(counts.values()) == 0 else 'filling')
+        return {'status': status, 'ingredient_counts': counts,
+                'remaining_cook_steps': int(cell['timer']) if status == 'cooking' else 0}
+    # Supply and delivery stations are static facilities, not held inventories.
+    return {'station_type': kind}
+
+
 def planner_view(view, static_map):
-    """JSON view only: no hidden state, profile label, or partner controller state."""
+    """Explicit counts and object names; unseen dynamics remain unknown."""
     stations = []
     names = {int(StaticObject.POT): 'pot', int(StaticObject.PLATE_PILE): 'plates',
              int(StaticObject.GOAL): 'serve'}
     for y, row in enumerate(static_map):
         for x, raw in enumerate(row):
             obj = int(raw)
-            kind = 'ingredient_0' if obj == 10 else names.get(obj)
+            kind = f'ingredient_{obj-10}' if obj >= 10 else names.get(obj)
             if kind:
                 stations.append({'kind': kind, 'pos': [x, y],
                                  'observed_now': (x, y) in view['cells'],
-                                 'contents': view['cells'].get((x, y))})
-    return {'self': view['self'], 'visible_partner': view['others'],
-            'stations': stations, 'public_recipe': [0, 0, 0],
+                                 'contents': planner_contents(view['cells'].get((x, y)), kind)})
+    return {'schema_version': 2, 'self': planner_agent(view['self']),
+            'visible_partner': [planner_agent(a) for a in view['others']],
+            'stations': stations, 'public_recipe': {'ingredient_counts': {'ingredient_0': 3}},
             'unseen_dynamic_state': 'unknown'}

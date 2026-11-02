@@ -9,11 +9,18 @@ from urllib.error import HTTPError, URLError
 SYSTEM = '''You coordinate with one partner in a cooking task. Maximize correct soup deliveries
 within the time budget. The public recipe is three units of ingredient 0. A pot cooks
 automatically after its third ingredient. Collect cooked soup with a plate, then deliver.
-You choose a job; a shared deterministic controller navigates and interacts for you.
+You choose a job; a shared controller navigates and interacts for you.
 A prep job adds ONE ingredient; a delivery job gets a plate, collects soup, and delivers.
 Both agents can do either job. Job commitment lasts until completion, target change or timeout.
 Use current observations and partner information to avoid redundant work. Partner information
 is a prior, not a command: consider current evidence. Do not assume unobserved dynamic states.
+State encoding: holding=empty means empty hands; empty_plate is a plate without soup;
+cooked_soup_on_plate is one plated soup, not two separately held objects.
+Agents carry one ingredient OR one plate OR one plated soup at a time.
+ingredient_counts maps ingredient names to quantities: {"ingredient_0": 0} means none,
+{"ingredient_0": 1} means one unit of ingredient_0, never ingredient_1.
+Pot status is empty, filling, cooking, or ready. Only ready soup can be collected.
+remaining_cook_steps is a countdown, not a signal to start cooking manually.
 Return ONLY one JSON object with keys:
 {"task_id": "one of the supplied candidate ids",
  "partner_prediction": "prep|delivery|inspect|recovery|wait",

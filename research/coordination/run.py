@@ -16,7 +16,7 @@ import numpy as np
 
 from .scenario import (PROFILES, CONDITIONS, LAYOUT_TEXT, SUPPORTED_LAYOUTS, create_env, initial_state,
                        state_hash, primitive_key, partner_information)
-from .observation import decode_observation, planner_view, inventory_kind
+from .observation import decode_observation, planner_view, inventory_kind, planner_agent
 from .controller import Executor, candidates, preferred_task
 from .llm import ChatClient
 
@@ -139,7 +139,7 @@ def trial(args, env, client, seed, profile, condition, path):
                     choices_log.flush()
                     decisions.append(record)
                     history.append({'step': step, 'selected_task': task['id'],
-                                    'visible_partner': current[0]['others']})
+                                    'visible_partner': [planner_agent(a) for a in current[0]['others']]})
                 acts = {f'agent_{i}': controllers[i].action(current[i]) for i in range(2)}
                 jobs = [controllers[i].job.task for i in range(2)]
                 same_target = jobs[0]['target'] is not None and jobs[0]['target'] == jobs[1]['target']
@@ -254,7 +254,7 @@ def main():
     args.out.mkdir(parents=True)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     metadata = {**vars(args), 'out': str(args.out), 'git_commit': revision,
-                'source_sha256': source_digest(), 'layout_text': LAYOUT_TEXT if args.layout == 'controlled' else None,
+                'source_sha256': source_digest(), 'planner_observation_schema': 2, 'layout_text': LAYOUT_TEXT if args.layout == 'controlled' else None,
                 'public_information': ['static map', 'fixed recipe 0,0,0', 'own pose'],
                 'partner_access': args.observation, 'ego_access': args.observation,
                 'intervention': 'supplied partner-priority description only',

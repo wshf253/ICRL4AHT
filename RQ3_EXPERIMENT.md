@@ -183,3 +183,13 @@ Default `controlled` preserves the original custom map. All supported maps retai
 `--start controlled` initializes one actual pot as cooking and, if present, another as partially filled. A one-pot map does not guarantee both work types are immediately available. `--start empty` uses the normal empty reset.
 Example: `lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --layout asymm_advantages --start empty --video`.
 Map switching does not add counter handoff skills: partitioned maps such as forced_coord can expose executor limitations and are not validated performance baselines.
+
+## Planner observation schema v2
+
+LLM observations and recent partner observations now use explicit `holding` labels
+(`empty`, `ingredient_0`, `empty_plate`, `cooked_soup_on_plate`) and named
+`ingredient_counts` quantities. Pots expose `status` (empty/filling/cooking/ready)
+and `remaining_cook_steps`. The recipe is a named count mapping. Unobserved
+contents remain null; no additional hidden state is exposed. Internal executor
+observations and task selection rules are unchanged. Config records schema 2.
+Re-run identical conditions to evaluate this representation correction separately.

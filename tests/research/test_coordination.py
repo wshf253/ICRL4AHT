@@ -165,3 +165,22 @@ def test_layout_selection_and_initialization():
             assert state_hash(state) == state_hash(initial_state(e, 0)[1])
     with pytest.raises(ValueError):
         create_env(layout_name='cramped_room_up')
+
+
+def test_explicit_planner_state_encoding():
+    from research.coordination.observation import planner_agent, planner_contents
+    def inv(n, plate=False, cooked=False):
+        return dict(ingredients=[n], plate=plate, cooked=cooked)
+    for value, expected in [(inv(0), 'empty'), (inv(1), 'ingredient_0'),
+                             (inv(0, True), 'empty_plate'), (inv(3, True, True), 'cooked_soup_on_plate')]:
+        raw = dict(pos=[1, 2], direction=0, inventory=value)
+        encoded = planner_agent(raw)
+        assert encoded['holding'] == expected
+        assert encoded['ingredient_counts'] == {'ingredient_0': value['ingredients'][0]}
+        assert 'inventory' not in encoded
+        assert raw['inventory'] == value
+    for count, timer, cooked, status in [(0, 0, False, 'empty'), (1, 0, False, 'filling'),
+                                        (3, 19, False, 'cooking'), (3, 0, True, 'ready')]:
+        c = planner_contents(dict(**inv(count, cooked=cooked), timer=timer), 'pot')
+        assert c['status'] == status and c['remaining_cook_steps'] == timer
+    assert planner_contents(None, 'pot') is None
