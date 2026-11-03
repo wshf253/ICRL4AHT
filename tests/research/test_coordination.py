@@ -507,3 +507,25 @@ def test_diagnose_decision_stats_and_described_type(tmp_path):
     g = diagnose.decision_stats(str(tmp_path))[('prep', 'correct')]
     assert (g['decisions'], g['work_vs_work'], g['duplicate']) == (3, 2, 1)
     assert (g['opportunities'], g['opportunity_chose_delivery']) == (2, 1)
+
+
+def test_diagnose_classifies_idle_choices_against_available_work():
+    from research.coordination.diagnose import classify_decision
+    def pot(pos, status, i0, i1):
+        return {'kind': 'pot', 'pos': pos, 'contents': {'status': status, 'remaining_cook_steps': 5,
+                'ingredient_counts': {'ingredient_0': i0, 'ingredient_1': i1}}}
+    obs = {'recipe': {'ingredient_counts': {'ingredient_0': 2, 'ingredient_1': 1}},
+           'stations': [pot([3, 0], 'filling', 2, 0), pot([7, 0], 'cooking', 2, 1)],
+           'visible_partner': [{'holding': 'empty'}]}
+    menu = [{'id': 'prep_3_0_ing0', 'kind': 'prep', 'target': [3, 0], 'ingredient': 0},
+            {'id': 'prep_3_0_ing1', 'kind': 'prep', 'target': [3, 0], 'ingredient': 1},
+            {'id': 'serve_7_0', 'kind': 'delivery', 'target': [7, 0]},
+            {'id': 'wait', 'kind': 'wait', 'target': None}]
+    decide = lambda task, o=obs: classify_decision({'context': {'observation': o, 'candidates': menu},
+                                                    'choice': {'task_id': task}})
+    assert decide('wait') == (True, 'wait')
+    assert decide('prep_3_0_ing0') == (True, 'unneeded_prep')
+    assert decide('prep_3_0_ing1') == (True, 'useful_prep')
+    assert decide('serve_7_0') == (True, 'serve_early')
+    covered = dict(obs, visible_partner=[{'holding': 'ingredient_1'}])  # partner brings the last one
+    assert decide('wait', covered) == (False, 'wait')

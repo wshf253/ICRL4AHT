@@ -69,6 +69,47 @@ def decision_stats(run):
     return groups
 
 
+def classify_decision(d):
+    """Was useful, uncovered prep work on the menu, and what did the ego pick?
+
+    useful prep: the target pot is empty/filling and adding the ingredient keeps
+    it able to match the recipe (single-recipe layouts: any empty/filling pot).
+    uncovered: the visible partner is not holding that ingredient while the pot
+    needs exactly one more of it (a heuristic: the partner may target another pot).
+    Returns (useful_uncovered_available, chosen_class)."""
+    obs = d['context']['observation']
+    recipe = (obs.get('recipe') or obs.get('public_recipe') or {}).get('ingredient_counts')
+    pots = {tuple(st['pos']): st['contents'] for st in obs['stations']
+            if st['kind'] == 'pot' and st['contents'] is not None}
+    partner_holds = {a['holding'] for a in obs.get('visible_partner', [])}
+
+    def prep_class(c):
+        pot = pots.get(tuple(c['target']))
+        if pot is None or pot['status'] not in ('empty', 'filling'):
+            return 'unneeded_prep'
+        if 'ingredient' not in c:
+            return 'useful_prep'
+        if recipe is None:
+            return 'unknown_prep'
+        name = f"ingredient_{c['ingredient']}"
+        need = recipe.get(name, 0) - pot['ingredient_counts'].get(name, 0)
+        if need <= 0:
+            return 'unneeded_prep'
+        return 'covered_prep' if need == 1 and name in partner_holds else 'useful_prep'
+
+    available = any(c['kind'] == 'prep' and prep_class(c) == 'useful_prep' for c in d['context']['candidates'])
+    chosen = next(c for c in d['context']['candidates'] if c['id'] == d['choice']['task_id'])
+    if chosen['kind'] == 'prep':
+        cls = prep_class(chosen)
+        cls = 'useful_prep' if cls == 'covered_prep' else cls
+    elif chosen['kind'] == 'delivery' and chosen['target'] is not None:
+        pot = pots.get(tuple(chosen['target']))
+        cls = 'serve_ready' if pot is not None and pot['status'] == 'ready' else 'serve_early'
+    else:
+        cls = chosen['kind']  # delivery of a held dish, recovery, inspect, wait
+    return available, cls
+
+
 def paired(rows):
     groups = defaultdict(dict)
     for r in rows:
@@ -147,6 +188,27 @@ def main():
               f"{per(0, 'unneeded_ingredient_added'):10.2f} {per(0, 'correct_delivery'):7.1f} "
               f"{per(1, 'ingredient_added'):7.1f} {per(1, 'unneeded_ingredient_added'):10.2f} {per(1, 'correct_delivery'):7.1f}")
     print('  ego_idle = steps the ego issued stay (waiting at a station or in a wait job); recov = discard/put_down.')
+    print('\nChoices when a useful, uncovered prep job was on the menu (% of those decisions):')
+    print(f"  {'partner':9s} {'condition':9s} {'avail%':>6s} {'n':>4s} {'use_prep':>8s} {'bad_prep':>8s} "
+          f"{'serve_early':>11s} {'serve_rdy':>9s} {'wait':>5s} {'other':>5s}")
+    groups = defaultdict(lambda: defaultdict(int))
+    for path in sorted(glob.glob(os.path.join(args.run, '*', 'decisions.jsonl'))):
+        summary = json.load(open(os.path.join(os.path.dirname(path), 'summary.json')))
+        g = groups[(summary['partner_profile'], summary['condition'])]
+        for line in open(path):
+            available, cls = classify_decision(json.loads(line))
+            g['decisions'] += 1
+            if available:
+                g['available'] += 1
+                g[cls] += 1
+    for key, g in sorted(groups.items()):
+        n = g['available']
+        pct = lambda k: f"{100*g[k]/n:.0f}" if n else '-'
+        other = n - sum(g[k] for k in ('useful_prep', 'unneeded_prep', 'serve_early', 'serve_ready', 'wait'))
+        print(f"  {key[0]:9s} {key[1]:9s} {100*n/(g['decisions'] or 1):6.0f} {n:4d} {pct('useful_prep'):>8s} "
+              f"{pct('unneeded_prep'):>8s} {pct('serve_early'):>11s} {pct('serve_ready'):>9s} {pct('wait'):>5s} "
+              f"{(f'{100*other/n:.0f}' if n else '-'):>5s}")
+    print('  serve_early = plate a soup that is still cooking (the agent waits at the pot).')
     print(f"\nCorrect soups discarded: {sum(metric(r, 'correct_soup_discarded') for r in rows)}; "
           f"LLM feedback retries: {sum(r['metrics'].get('llm_feedback_retries', 0) for r in rows)}, "
           f"recovered: {sum(r['metrics'].get('llm_recovered_by_feedback', 0) for r in rows)}")
