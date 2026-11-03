@@ -78,6 +78,8 @@ def successful_events(before, after, acts, static):
             events.append({'agent': i, 'type': 'correct_delivery' if inv0 == plated_recipe else 'wrong_delivery'})
         if dish and inv1 == 0 and target == 1:
             events.append({'agent': i, 'type': 'dish_discarded'})
+            if inv0 == plated_recipe:
+                events.append({'agent': i, 'type': 'correct_soup_discarded'})
         if inv0 & 1 == 0 and inv0 >> 2 and inv1 == 0 and target == 5:
             events.append({'agent': i, 'type': 'ingredient_added'})
             pot = ingredient_vector(before.grid[y, x, 1], n)

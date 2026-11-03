@@ -268,8 +268,8 @@ Rules and what is public:
   ingredients drawn from the recipe.
 - **Jobs**: prep jobs name the ingredient (`prep_<x>_<y>_ing<i>`). Every type is offered; the
   planner must work out what each pot still needs. `discard_<x>_<y>` (plate a soup and put it on
-  a counter) appears for cooking/ready pots whose contents differ from the known recipe;
-  `put_down` is offered when holding a plated soup. `inspect_recipe_<x>_<y>` appears while the
+  a counter) is offered for every cooking/ready pot, so the menu never reveals which soup is
+  wrong; `put_down` is offered when holding a plated soup. `inspect_recipe_<x>_<y>` appears while the
   recipe is unknown.
 - **Mistakes cost**: any three ingredients cook automatically; delivering a wrong soup gives −20.
   Discarding costs nothing but the time.
@@ -283,7 +283,14 @@ Rules and what is public:
   (`recipe` replaces `public_recipe`). Single-recipe layouts keep the original prompt and schema;
   their step and decision logs were checked to be byte-identical to the previous code.
 - **New metrics** (evaluator only, from the true recipe): `wrong_delivery`, `dish_discarded`,
-  `unneeded_ingredient_added` per agent, `wrong_deliveries` and `recipe_counts` in each summary.
+  `correct_soup_discarded`, `unneeded_ingredient_added` per agent, `wrong_deliveries` and
+  `recipe_counts` in each summary.
+- **Invalid answers**: an answer whose `task_id` is not on the menu is retried once with the
+  rejected answer and the list of valid ids (a plain resend at temperature 0 repeats the same
+  answer). Both attempts are in `llm.jsonl` (`feedback_retry`); summaries count
+  `llm_feedback_retries` and `llm_recovered_by_feedback`. A second invalid answer fails the trial.
+- **Diagnostic report**: `python -m research.coordination.diagnose <run>/experiment` prints
+  per-trial outcomes, per-condition totals, paired effects and every rejected LLM answer.
 
 Screen (seeds 0–7, 200 steps, controlled start, scripted rules only):
 

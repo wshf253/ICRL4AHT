@@ -35,8 +35,9 @@ ingredient_1. The recipe is fixed for the whole episode. If recipe.source is "un
 recipe has not been observed yet; inspect a recipe indicator before preparing ingredients.
 A pot cooks automatically after its third ingredient of ANY type. A pot whose count of some
 ingredient exceeds the recipe can never become a correct soup. Delivering a soup that does not
-match the recipe costs the same reward a correct delivery earns. A discard job plates such a soup
-and puts it on a counter instead, which frees the pot at no penalty.
+match the recipe costs the same reward a correct delivery earns. A discard job plates a pot's soup
+and puts it on a counter instead, which frees the pot at no penalty. Discard jobs are offered for
+every cooking or ready pot; discarding a soup that matches the recipe throws away a correct soup.
 You choose a job; a shared controller navigates and interacts for you.
 A prep job fetches ONE unit of the named ingredient and adds it to the named pot.
 A delivery job gets a plate, collects that pot's soup when ready, and delivers it.

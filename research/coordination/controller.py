@@ -66,9 +66,9 @@ def candidates(view, static):
 
     With one ingredient type the menu is unchanged from the single-recipe pilot.
     With several, prep jobs name the ingredient and every type is offered: the
-    planner, not the menu, must work out what each pot still needs. A discard
-    job appears for a cooking/ready pot whose contents differ from the recipe
-    the agent knows (view['known_recipe'], observed or public).
+    planner, not the menu, must work out what each pot still needs. Likewise a
+    discard job is offered for every cooking/ready pot, so the menu never
+    reveals which soup is wrong; discarding a correct soup is a logged mistake.
     """
     inv = view['self']['inventory']
     kind = inventory_kind(inv)
@@ -99,7 +99,7 @@ def candidates(view, static):
             if kind in ('empty', 'plate') and (c['cooked'] or c['timer'] > 0):
                 result.append({'id': f'serve_{pot[0]}_{pot[1]}', 'kind': 'delivery', 'target': list(pot),
                                'description': 'Fetch a plate if needed, collect this soup when ready, then deliver it.'})
-                if n > 1 and recipe is not None and not matches(c['ingredients'], recipe):
+                if n > 1:
                     result.append({'id': f'discard_{pot[0]}_{pot[1]}', 'kind': 'recovery', 'target': list(pot),
                                    'description': 'Fetch a plate if needed, collect this soup when ready, then put it '
                                                   'on an empty counter instead of delivering it.'})
@@ -143,7 +143,7 @@ def useful_work(menu, view):
                 last_resort.append(c)
         elif c['id'].startswith('serve_') and pot is not None and matches(pot['ingredients'], recipe):
             plating.append(c)
-        elif c['id'].startswith('discard_'):
+        elif c['id'].startswith('discard_') and pot is not None and not matches(pot['ingredients'], recipe):
             plating.append(c)
         elif dish and c['id'] == ('deliver' if matches(view['self']['inventory']['ingredients'], recipe)
                                    else 'put_down'):

@@ -320,7 +320,11 @@ def test_multi_recipe_menu_and_scripted_choice():
     assert {'serve_3_0', 'discard_3_0'} <= {c['id'] for c in wrong_menu}
     assert preferred_task(wrong_menu, 'delivery', [3, 1], static, wrong)['id'] == 'discard_3_0'
     right = _view([2, 1], [2, 1], cooked=True)
-    assert 'discard_3_0' not in {c['id'] for c in candidates(right, static)}
+    right_menu = candidates(right, static)
+    # Discard is offered for correct soups too, so the menu does not reveal
+    # which pot is wrong; the scripted rule still serves the correct one.
+    assert {'serve_3_0', 'discard_3_0'} <= {c['id'] for c in right_menu}
+    assert preferred_task(right_menu, 'delivery', [3, 1], static, right)['id'] == 'serve_3_0'
     # Single-ingredient menus keep their original ids.
     single = create_env(20, 'full').layout.static_objects
     one = {'self': {'pos': [2, 1], 'direction': 0, 'inventory': {'plate': False, 'cooked': False, 'ingredients': [0]}},
