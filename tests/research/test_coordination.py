@@ -436,3 +436,53 @@ def test_diagnose_reports_trials_pairs_and_llm_errors(tmp_path, capsys):
     sys.argv = ['diagnose', str(tmp_path)]
     diagnose.main()
     assert 'LLM errors: 1' in capsys.readouterr().out
+
+
+def _fake_model_server(answer):
+    """answer(request_body) -> task_id; returns (server, thread, requests)."""
+    requests = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            requests.append(body)
+            choice = {'task_id': answer(body), 'partner_prediction': 'prep', 'reason': 'test'}
+            data = json.dumps({'choices': [{'message': {'content': json.dumps(choice)},
+                                            'finish_reason': 'stop'}]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, requests
+
+
+def test_invalid_task_id_retried_with_feedback():
+    context = {'candidates': [{'id': 'serve_7_0'}, {'id': 'discard_3_0'}], 'observation': {}}
+    def answer(body):  # repeats the mistake unless told why it was rejected
+        return 'discard_3_0' if len(body['messages']) == 4 else 'discard_7_0'
+    server, thread, requests = _fake_model_server(answer)
+    try:
+        records = []
+        client = ChatClient(f'http://127.0.0.1:{server.server_port}/v1', 'm')
+        assert client.choose(context, 0, records.append)['task_id'] == 'discard_3_0'
+        assert [r.get('error') for r in records] == ['Invalid task_id', None]
+        assert [r['feedback_retry'] for r in records] == [False, True]
+        feedback = requests[1]['messages']
+        assert feedback[2]['role'] == 'assistant' and 'discard_7_0' in feedback[2]['content']
+        assert '"serve_7_0", "discard_3_0"' in feedback[3]['content']
+        assert requests[0]['messages'] == feedback[:2]  # original request unchanged
+    finally:
+        server.shutdown(); server.server_close(); thread.join()
+    server, thread, _ = _fake_model_server(lambda body: 'discard_7_0')  # never recovers
+    try:
+        records = []
+        with pytest.raises(ModelError):
+            ChatClient(f'http://127.0.0.1:{server.server_port}/v1', 'm').choose(context, 0, records.append)
+        assert len(records) == 2 and all('error' in r for r in records)
+    finally:
+        server.shutdown(); server.server_close(); thread.join()

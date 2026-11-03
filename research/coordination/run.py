@@ -143,6 +143,8 @@ def trial(args, env, client, seed, profile, condition, path):
                 llm_log.flush()
                 counters['llm_attempts'] += 1
                 counters['llm_errors'] += int('error' in record)
+                counters['llm_feedback_retries'] += int(bool(record.get('feedback_retry')))
+                counters['llm_recovered_by_feedback'] += int(bool(record.get('feedback_retry')) and 'error' not in record)
             if args.video:
                 import imageio.v2 as imageio
                 from scripts.preview_teammates import frame

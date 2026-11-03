@@ -117,23 +117,25 @@ class ChatClient:
         return ids
 
     def choose(self, context, seed, audit, system=None):
-        payload = {'model': self.model,
-                   'messages': [{'role': 'system', 'content': system or SYSTEM},
-                                {'role': 'user', 'content': json.dumps(context)}],
-                   'max_tokens': self.max_tokens, 'temperature': self.temperature,
-                   'seed': seed, 'response_format': {'type': 'json_object'},
-                   'chat_template_kwargs': {'enable_thinking': False}}
+        messages = [{'role': 'system', 'content': system or SYSTEM},
+                    {'role': 'user', 'content': json.dumps(context)}]
         # Raw REST body: chat_template_kwargs is top-level, not nested in extra_body.
         for attempt in range(self.retries+1):
+            payload = {'model': self.model, 'messages': messages,
+                       'max_tokens': self.max_tokens, 'temperature': self.temperature,
+                       'seed': seed, 'response_format': {'type': 'json_object'},
+                       'chat_template_kwargs': {'enable_thinking': False}}
             start = time.monotonic()
-            record = {'attempt': attempt, 'request': payload}
+            record = {'attempt': attempt, 'request': payload, 'feedback_retry': attempt > 0 and len(messages) > 2}
+            content = None
             try:
                 response = self._request('chat/completions', payload)
                 record['response'] = response
                 choice = response['choices'][0]
+                content = choice['message'].get('content')
                 if choice.get('finish_reason') != 'stop':
                     raise ModelError(f'Generation did not finish normally: {choice.get("finish_reason")}')
-                parsed = parse_choice(choice['message'].get('content'), context['candidates'])
+                parsed = parse_choice(content, context['candidates'])
                 record['parsed'] = parsed
             except (ModelError, KeyError, IndexError, TypeError) as e:
                 record['error'] = str(e)
@@ -141,6 +143,15 @@ class ChatClient:
                 audit(record)
                 if attempt == self.retries:
                     raise ModelError(str(e)) from e
+                if isinstance(content, str) and content.strip():
+                    # Resending the identical request at temperature 0 returns the
+                    # identical answer, so a plain retry cannot recover. Show the
+                    # rejected answer and the reason once; every attempt is logged.
+                    ids = [c['id'] for c in context['candidates']]
+                    messages = messages[:2] + [
+                        {'role': 'assistant', 'content': content},
+                        {'role': 'user', 'content': f'Your answer was rejected: {e}. task_id must be exactly '
+                                                    f'one of {json.dumps(ids)}. Return only the JSON object.'}]
             else:
                 record['latency_s'] = time.monotonic()-start
                 audit(record)
