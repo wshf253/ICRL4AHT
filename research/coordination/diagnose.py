@@ -8,7 +8,7 @@ from collections import defaultdict
 import glob
 import json
 import os
-from statistics import mean
+from statistics import mean, stdev
 
 
 def metric(row, key):
@@ -112,9 +112,13 @@ def main():
         print(f"  seed {pair['seed']} {pair['profile']:8s} correct-none={pair['correct_minus_none']} "
               f"correct-opposite={pair['correct_minus_opposite']}")
     for key in ('correct_minus_none', 'correct_minus_opposite'):
-        values = [pair[key] for pair in pairs if pair[key] is not None]
-        if values:
-            print(f"  mean {key} = {mean(values):+.1f} over {len(values)} pairs")
+        for profile in (None, 'prep', 'delivery'):
+            values = [pair[key] for pair in pairs if pair[key] is not None and profile in (None, pair['profile'])]
+            if not values:
+                continue
+            se = stdev(values) / len(values) ** 0.5 if len(values) > 1 else float('nan')
+            print(f"  mean {key} = {mean(values):+.1f} (SE {se:.1f}) over {len(values)} pairs"
+                  f"{'' if profile is None else f' [{profile} partner]'}")
     print('\nEgo decisions by true partner and condition (all decisions):')
     print(f"  {'partner':9s} {'condition':9s} {'told':9s} {'dec':>4s} {'prep%':>6s} {'deliv%':>6s} "
           f"{'other%':>6s} {'dup%':>5s} {'deliv%|both':>11s} {'pred':>5s} {'return':>6s}")
@@ -131,6 +135,18 @@ def main():
               f"{both:>11s} {mean(accs) if accs else float('nan'):5.2f} {mean(r['shared_return'] for r in rs):6.1f}")
     print('  dup% = ego chose the work kind the partner was doing; deliv%|both = delivery share when both kinds were offered.')
     print('  Complementing: deliv%|both rises when told the partner prioritizes prep. Mirroring: it rises when told delivery.')
+    print('\nWhere the time goes, per trial means (ego = agent 0, partner = agent 1):')
+    print(f"  {'partner':9s} {'condition':9s} {'wait%':>5s} {'recov%':>6s} {'insp%':>5s} {'ego_idle':>8s} "
+          f"{'ego_ing':>7s} {'ego_unneed':>10s} {'ego_dlv':>7s} {'ptn_ing':>7s} {'ptn_unneed':>10s} {'ptn_dlv':>7s}")
+    for (profile, condition), g in sorted(stats.items()):
+        n = g['decisions'] or 1
+        rs = [r for r in rows if r['partner_profile'] == profile and r['condition'] == condition]
+        per = lambda agent, key: mean(r['metrics'].get(f'agent_{agent}_{key}', 0) for r in rs)
+        print(f"  {profile:9s} {condition:9s} {100*g['chose_wait']/n:5.0f} {100*g['chose_recovery']/n:6.0f} "
+              f"{100*g['chose_inspect']/n:5.0f} {per(0, 'stay_steps'):8.1f} {per(0, 'ingredient_added'):7.1f} "
+              f"{per(0, 'unneeded_ingredient_added'):10.2f} {per(0, 'correct_delivery'):7.1f} "
+              f"{per(1, 'ingredient_added'):7.1f} {per(1, 'unneeded_ingredient_added'):10.2f} {per(1, 'correct_delivery'):7.1f}")
+    print('  ego_idle = steps the ego issued stay (waiting at a station or in a wait job); recov = discard/put_down.')
     print(f"\nCorrect soups discarded: {sum(metric(r, 'correct_soup_discarded') for r in rows)}; "
           f"LLM feedback retries: {sum(r['metrics'].get('llm_feedback_retries', 0) for r in rows)}, "
           f"recovered: {sum(r['metrics'].get('llm_recovered_by_feedback', 0) for r in rows)}")
