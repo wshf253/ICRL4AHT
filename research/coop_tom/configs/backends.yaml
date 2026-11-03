@@ -1,0 +1,48 @@
+# Model endpoints. Everything speaks the OpenAI Chat Completions API, so moving from the local
+# open-source stage to the frontier stage = pointing `backends.agent` at another entry
+# (or passing --agent-backend on the command line).
+
+# --- Stage 1: Qwen3.8-27B served locally with vLLM (scripts/run_qwen38_coop.sh) ---------------
+qwen3.8-27b:
+  type: openai_compat
+  base_url_env: ICRL_LLM_BASE_URL     # set by the serving script; or export it yourself
+  base_url: http://127.0.0.1:8000/v1  # fallback when the env var is unset
+  model_env: ICRL_LLM_MODEL
+  model: qwen3.8-27b                  # = --served-model-name
+  api_key_env: ICRL_LLM_API_KEY       # optional
+  json_mode: true                     # response_format=json_object (vLLM structured outputs)
+  params:
+    temperature: 0.7                  # Qwen non-thinking recommendation; every request carries a stable seed
+    top_p: 0.8
+    max_tokens: 512
+  extra_body:
+    top_k: 20
+    min_p: 0.0
+    # Thinking off. Qwen3.x templates read enable_thinking; the Qwen3.8 guide mentions
+    # reasoning_effort=none. Unused template variables are ignored, so both are sent;
+    # `python -m research.coop_tom.check` verifies that no reasoning comes back.
+    chat_template_kwargs: {enable_thinking: false, reasoning_effort: none}
+  chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS  # JSON override chosen by the check
+
+# LLM-simulated human (later): a different model family from the agent, on a second server.
+partner-llm:
+  type: openai_compat
+  base_url_env: COOP_PARTNER_BASE_URL
+  base_url: http://127.0.0.1:8001/v1
+  model: partner-llm
+  json_mode: true
+  params: {temperature: 0.7, top_p: 0.95, max_tokens: 160}
+
+# --- Stage 2: frontier API (fill in when switching) -------------------------------------------
+frontier:
+  type: openai_compat
+  base_url: https://SET_ME/v1
+  model: SET_ME
+  api_key_env: FRONTIER_API_KEY
+  json_mode: true
+  send_seed: true                     # set false if the provider rejects `seed`
+  params: {temperature: 0.7, max_tokens: 512}
+
+# --- Offline plumbing test (no model) ---------------------------------------------------------
+mock:
+  type: mock

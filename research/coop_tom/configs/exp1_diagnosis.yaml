@@ -1,0 +1,18 @@
+# Exp 1 - Diagnosis (Q0-a/b/c). Zero-shot, no memory.
+# 2x2 oracle grid: {order hidden, given} x {persona hidden, given}.
+#   Q0-a: probe accuracy / violation mass (belief on orders the pot already rules out)
+#   Q0-b: at the agent's commit, probe right + soup wrong = utilization error; probe wrong = inference error
+#   Q0-c: failures by phase (ingredient = parallel segment, cook_serve = serial segment) and persona
+name: exp1_diagnosis
+base: _base_demo_cook.yaml
+mode: grid
+personas: [does_all, starter, slow]
+episodes_per_cell: 30
+conditions:
+  - {name: hid_hid, prompt: direct}
+  - {name: ord_hid, prompt: direct, oracle_recipe: true}
+  - {name: hid_per, prompt: direct, oracle_persona: true}
+  - {name: ord_per, prompt: direct, oracle_recipe: true, oracle_persona: true}
+  # non-LLM references: evidence-consistent rule cook, with and without the order
+  - {name: ref_rule, policy: scripted_cook}
+  - {name: ref_rule_oracle, policy: scripted_cook, oracle_recipe: true}

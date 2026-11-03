@@ -1,0 +1,62 @@
+# Partner personas (the informed partner = LLM-simulated human, or its scripted twin).
+#   label    - one-line description: probe options (A, B, C, ...) and the oracle_persona condition
+#   text     - working-style instruction given to the LLM-simulated human
+#   scripted - parameters of the rule-based twin (X3 reproducibility control); also the GT used
+#              for adherence checks of the LLM human
+#
+# Demo Cook personas: the partner sees the order display; the robot (cook) does not.
+
+does_all:
+  label: "Puts all three ingredients of each order into the pot themselves and leaves plating and serving to you."
+  text: >-
+    You like to prepare the pot yourself. For every soup you fetch and put ALL THREE ingredients of the
+    current order into the pot yourself, one at a time. You leave plates and serving to your teammate.
+    You never put an ingredient that is not in the current order into the pot.
+  scripted: {kind: demo, n_add: 3, order: any, pause: 0}
+
+starter:
+  label: "Puts only one ingredient of each order into the pot and expects you to finish the pot."
+  text: >-
+    For every soup you put exactly ONE ingredient of the current order into the pot, then step back and
+    wait; you expect your teammate to add the other two. You never add a second ingredient to the same soup.
+  scripted: {kind: demo, n_add: 1, order: any, pause: 0}
+
+starter_minority:
+  label: "Puts only one ingredient of each order into the pot - always the ingredient that appears only once in the order - and expects you to finish."
+  text: >-
+    For every soup you put exactly ONE ingredient of the current order into the pot and then wait for your
+    teammate to add the other two. When the order mixes two ingredients, the one you put in is ALWAYS the
+    ingredient that appears only once in the order. You never add a second ingredient to the same soup.
+  scripted: {kind: demo, n_add: 1, order: minority_first, pause: 0}
+
+slow:
+  label: "Puts all three ingredients in themselves, but pauses for a long time between steps."
+  text: >-
+    You prepare every soup yourself (all three ingredients of the current order), but you work slowly:
+    after each ingredient you put into the pot you wait about 8 steps before doing anything else.
+  scripted: {kind: demo, n_add: 3, order: any, pause: 8}
+
+minority_first:
+  label: "Puts all three ingredients in themselves and always starts with the ingredient that appears only once in the order."
+  text: >-
+    You prepare every soup yourself (all three ingredients). When the order mixes two ingredients you ALWAYS
+    put the ingredient that appears only once in the order into the pot first.
+  scripted: {kind: demo, n_add: 3, order: minority_first, pause: 0}
+
+# Test-Time Protocol personas (layout test_time_simple, recipes pure_01). The partner cannot reach the pot;
+# it can only signal the order by where it leaves a broccoli. The two conventions conflict (Exp 5 / M4).
+conv_A:
+  label: "Signals the order with a broccoli: upper middle counter (3,1) = onion soup, lower middle counter (3,3) = tomato soup."
+  text: >-
+    You can see the order display but cannot reach the pot. Your habit: keep exactly one broccoli on the
+    middle counters to show the order - on counter (3,1) for onion soup, on counter (3,3) for tomato soup.
+    When the order changes, move the broccoli. Never use any other counter for this.
+  scripted: {kind: signal, signal_ingredient: 2, convention: {"onion+onion+onion": [3, 1], "tomato+tomato+tomato": [3, 3]}}
+
+conv_B:
+  label: "Signals the order with a broccoli: upper middle counter (3,1) = tomato soup, lower middle counter (3,3) = onion soup."
+  text: >-
+    You can see the order display but cannot reach the pot. Your habit: keep exactly one broccoli on the
+    middle counters to show the order - on counter (3,1) for tomato soup, on counter (3,3) for onion soup.
+    When the order changes, move the broccoli. Never use any other counter for this.
+  scripted: {kind: signal, signal_ingredient: 2, convention: {"onion+onion+onion": [3, 3], "tomato+tomato+tomato": [3, 1]}}

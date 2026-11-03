@@ -1,0 +1,16 @@
+# Exp 2 - ToM rationale (T1-T4). Order and persona hidden, no memory. Run after Exp 1.
+#   T1 tom_free vs cot (same word budget)   T2 tom_slots vs tom_free
+#   T3 probe accuracy -> score (episode-level regression within condition)
+#   T4 tom_2nd vs tom_slots, by persona (expected to matter for `starter`, not `does_all`)
+name: exp2_tom_rationale
+base: _base_demo_cook.yaml
+mode: grid
+personas: [does_all, starter, slow]
+episodes_per_cell: 30
+conditions:
+  - {name: direct, prompt: direct}
+  - {name: cot, prompt: cot}
+  - {name: tom_free, prompt: tom_free}
+  - {name: tom_slots, prompt: tom_slots}
+  - {name: tom_2nd, prompt: tom_2nd}
+  - {name: oracle, prompt: direct, oracle_recipe: true, oracle_persona: true}

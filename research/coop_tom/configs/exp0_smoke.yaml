@@ -1,0 +1,14 @@
+# Exp 0 - pipeline smoke test + task competence without ToM. Run this first.
+# cramped_room_up: the robot (agent 1) starts next to the order display, so no inference is needed.
+# Failures here are execution/format failures, not coordination failures. Read off: parse
+# failures, thinking leaks, calls and wall time per episode (to calibrate max_steps / episodes).
+name: exp0_smoke
+base: _base_demo_cook.yaml
+mode: grid
+env: {layout: cramped_room_up, max_steps: 200}
+probe: {enabled: false}
+personas: [does_all, starter]
+episodes_per_cell: 5
+conditions:
+  - {name: llm_direct, prompt: direct}
+  - {name: ref_scripted_oracle, policy: scripted_cook, oracle_recipe: true}

@@ -1,0 +1,22 @@
+# Shared settings for every Demo Cook experiment. Experiment files set `base:` to this file and
+# override what they change (lists such as `conditions` are replaced, dicts are merged).
+env:
+  layout: demo_cook_simple      # partner (agent 0, left room) sees the order display, robot (agent 1) never does
+  recipes: mixed_01             # all 3-multisets of {onion, tomato}: one placement leaves 2-3 candidates
+  view_radius: 2                # Chebyshev radius -> 5x5 view
+  max_steps: 300
+  negative_rewards: true        # wrong delivery = -20 (off by default in OvercookedV2)
+  resample_on_delivery: true    # new order after each correct delivery (sequence fixed by seed)
+  random_agent_positions: false
+slots: {agent: 1, partner: 0}
+backends:
+  agent: qwen3.8-27b            # stage 1. Stage 2: --agent-backend frontier
+  partner: scripted             # rule-based persona twin (exact ground truth). Later: partner-llm
+personas_file: personas.yaml
+reasoning_words: 80             # budget for cot / tom_free reasoning (token-matched comparison, T1)
+replan_on_partner_event: true   # a 'wait' is interrupted when the agent sees its partner act
+seed: 0
+probe:
+  enabled: true
+  triggers: [partner_pot_event, decision_ingredient_phase]
+  options: [does_all, starter, slow]   # shown to the probe as (A) (B) (C)
