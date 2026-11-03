@@ -415,3 +415,24 @@ def test_screen_mixed_layout_information_gap():
     r = screen_layout(MIXED, seeds=[0, 1], steps=200)
     assert min(r['information_gap'].values()) >= 20, r
     assert r['max_failed_move_rate'] < 0.1, r
+
+
+def test_diagnose_reports_trials_pairs_and_llm_errors(tmp_path, capsys):
+    import sys
+    from research.coordination import diagnose
+    e = create_env(40, 'full', MIXED)
+    args = SimpleNamespace(backend='scripted', steps=40, max_job_steps=32, observation='full', video=False)
+    for condition in ('none', 'correct', 'opposite'):
+        trial(args, e, None, 0, 'prep', condition, tmp_path/f'seed0_prep_{condition}')
+    first = json.loads((tmp_path/'seed0_prep_none/decisions.jsonl').read_text().splitlines()[0])
+    bad = {'attempt': 1, 'sim_step': 0, 'error': 'Invalid task_id',
+           'request': {'messages': [{}, {'content': json.dumps(first['context'])}]},
+           'response': {'choices': [{'message': {'content': '{"task_id": "invented"}'}}]}}
+    (tmp_path/'seed0_prep_none/llm.jsonl').write_text(json.dumps(bad)+'\n')
+    errors = diagnose.llm_errors(str(tmp_path))
+    assert errors[0]['model_output'] == '{"task_id": "invented"}'
+    assert errors[0]['valid_task_ids'] == [c['id'] for c in first['context']['candidates']]
+    assert diagnose.paired(diagnose.trial_rows(str(tmp_path)))[0]['correct_minus_none'] == 0
+    sys.argv = ['diagnose', str(tmp_path)]
+    diagnose.main()
+    assert 'LLM errors: 1' in capsys.readouterr().out
