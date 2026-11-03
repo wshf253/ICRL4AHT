@@ -48,23 +48,61 @@ def nearest(static, start, targets, blocked=()):
     return (x, y)
 
 
+def held_ingredient(inv):
+    return next((i for i, count in enumerate(inv['ingredients']) if count), None)
+
+
+def matches(contents, recipe):
+    return recipe is not None and list(contents) == list(recipe)
+
+
+def still_possible(contents, recipe):
+    """Pot contents can still become exactly the recipe."""
+    return recipe is not None and all(c <= r for c, r in zip(contents, recipe))
+
+
 def candidates(view, static):
-    kind = inventory_kind(view['self']['inventory'])
+    """Jobs feasible from the agent's own observation.
+
+    With one ingredient type the menu is unchanged from the single-recipe pilot.
+    With several, prep jobs name the ingredient and every type is offered: the
+    planner, not the menu, must work out what each pot still needs. A discard
+    job appears for a cooking/ready pot whose contents differ from the recipe
+    the agent knows (view['known_recipe'], observed or public).
+    """
+    inv = view['self']['inventory']
+    kind = inventory_kind(inv)
+    n = len(inv['ingredients'])
+    recipe = view.get('known_recipe')
     result = []
     if kind == 'dish':
         result.append({'id': 'deliver', 'kind': 'delivery', 'target': None,
                        'description': 'Deliver the dish you are carrying.'})
+        if n > 1:
+            result.append({'id': 'put_down', 'kind': 'recovery', 'target': None,
+                           'description': 'Put the carried soup onto an observed empty counter instead of delivering it.'})
     else:
         for pot in locations(static, 5):
             c = view['cells'].get(pot)
             if c is None:
                 continue
             if kind in ('empty', 'ingredient') and not c['cooked'] and c['timer'] == 0 and sum(c['ingredients']) < 3:
-                result.append({'id': f'prep_{pot[0]}_{pot[1]}', 'kind': 'prep', 'target': list(pot),
-                               'description': 'Fetch one ingredient if needed, then add it to this pot.'})
+                if n == 1:
+                    result.append({'id': f'prep_{pot[0]}_{pot[1]}', 'kind': 'prep', 'target': list(pot),
+                                   'description': 'Fetch one ingredient if needed, then add it to this pot.'})
+                else:
+                    held = held_ingredient(inv)
+                    for i in range(n) if held is None else [held]:
+                        result.append({'id': f'prep_{pot[0]}_{pot[1]}_ing{i}', 'kind': 'prep',
+                                       'target': list(pot), 'ingredient': i,
+                                       'description': f'Fetch one ingredient_{i} if needed, then add it to this pot.'})
             if kind in ('empty', 'plate') and (c['cooked'] or c['timer'] > 0):
                 result.append({'id': f'serve_{pot[0]}_{pot[1]}', 'kind': 'delivery', 'target': list(pot),
                                'description': 'Fetch a plate if needed, collect this soup when ready, then deliver it.'})
+                if n > 1 and recipe is not None and not matches(c['ingredients'], recipe):
+                    result.append({'id': f'discard_{pot[0]}_{pot[1]}', 'kind': 'recovery', 'target': list(pot),
+                                   'description': 'Fetch a plate if needed, collect this soup when ready, then put it '
+                                                  'on an empty counter instead of delivering it.'})
         if kind in ('plate', 'ingredient'):
             result.append({'id': 'put_down', 'kind': 'recovery', 'target': None,
                            'description': 'Put the carried item onto an observed empty counter to free your hands.'})
@@ -73,14 +111,62 @@ def candidates(view, static):
         if pot not in view['cells']:
             result.append({'id': f'inspect_{pot[0]}_{pot[1]}', 'kind': 'inspect', 'target': list(pot),
                            'description': 'Move near this pot to observe its current state.'})
+    if n > 1 and recipe is None:
+        for x, y in locations(static, 6):
+            result.append({'id': f'inspect_recipe_{x}_{y}', 'kind': 'inspect', 'target': [x, y],
+                           'description': 'Move near this recipe indicator to read the current recipe.'})
     result.append({'id': 'wait', 'kind': 'wait', 'target': None, 'description': 'Wait briefly.'})
     return result
 
 
-def preferred_task(menu, profile, pose, static):
+def useful_work(menu, view):
+    """Scripted agents' recipe-aware filter (multi-ingredient layouts only).
+
+    Returns (prep, plating, last_resort): prep jobs whose ingredient the target
+    pot still needs; correct serves, discards and deliveries of plated soup
+    (put_down when the carried soup is wrong); and prep for pots that can no
+    longer match, filled only so they cook and can be discarded. Needs are
+    computed per pot, never summed across pots.
+    """
+    recipe = view.get('known_recipe')
+    cells = view['cells']
+    dish = inventory_kind(view['self']['inventory']) == 'dish'
+    prep, plating, last_resort = [], [], []
+    for c in menu:
+        pot = cells.get(tuple(c['target'])) if c['target'] else None
+        if c['kind'] == 'prep' and pot is not None:
+            after = list(pot['ingredients'])
+            after[c['ingredient']] += 1
+            if still_possible(after, recipe):
+                prep.append(c)
+            elif not still_possible(pot['ingredients'], recipe):
+                last_resort.append(c)
+        elif c['id'].startswith('serve_') and pot is not None and matches(pot['ingredients'], recipe):
+            plating.append(c)
+        elif c['id'].startswith('discard_'):
+            plating.append(c)
+        elif dish and c['id'] == ('deliver' if matches(view['self']['inventory']['ingredients'], recipe)
+                                   else 'put_down'):
+            plating.append(c)
+    return prep, plating, last_resort
+
+
+def preferred_task(menu, profile, pose, static, view=None):
+    """Scripted priority rule. Pass the agent's view on multi-ingredient layouts
+    so it never adds an ingredient a pot does not need or delivers a wrong soup."""
     work = [c for c in menu if c['kind'] in ('prep', 'delivery')]
     preferred = [c for c in work if c['kind'] == profile]
     pool = preferred or work or [c for c in menu if c['kind'] in ('recovery', 'inspect')]
+    if view is not None and len(view['self']['inventory']['ingredients']) > 1:
+        if view.get('known_recipe') is None:
+            pool = ([c for c in menu if c['id'].startswith('inspect_recipe')] or
+                    [c for c in menu if c['kind'] == 'inspect'] or
+                    [c for c in menu if c['id'] == 'put_down'])
+        else:
+            prep, plating, last_resort = useful_work(menu, view)
+            mine = prep if profile == 'prep' else plating
+            pool = (mine or prep + plating or last_resort or
+                    [c for c in menu if c['id'] == 'put_down' or c['kind'] == 'inspect'])
     if not pool:
         return next(c for c in menu if c['id'] == 'wait')
     def cost(c):
@@ -98,6 +184,17 @@ class Job:
     previous_kind: str = 'empty'
     interacted: bool = False
     attempted: str = ''
+    needed_at_assign: bool = False  # multi-ingredient prep: pot needed this ingredient
+
+
+def ingredient_still_needed(task, view):
+    """Adding task's ingredient keeps the observed pot able to match the recipe."""
+    pot = view['cells'].get(tuple(task['target']))
+    if pot is None or 'ingredient' not in task:
+        return None  # unobserved pot or single-ingredient prep: no judgement
+    after = list(pot['ingredients'])
+    after[task['ingredient']] += 1
+    return still_possible(after, view.get('known_recipe'))
 
 
 class Executor:
@@ -115,6 +212,8 @@ class Executor:
 
     def assign(self, task, view):
         self.job = Job(dict(task), previous_kind=inventory_kind(view['self']['inventory']))
+        if task['kind'] == 'prep':
+            self.job.needed_at_assign = bool(ingredient_still_needed(task, view))
         self.last_outcome = None
 
     def observe(self, view):
@@ -130,6 +229,11 @@ class Executor:
         c = view['cells'].get(tuple(j.task['target'])) if j.task['target'] else None
         invalid = (j.task['kind'] == 'prep' and c is not None and
                    (c['cooked'] or c['timer'] > 0 or sum(c['ingredients']) >= 3))
+        # Multi-ingredient: a needed ingredient became redundant (someone else
+        # added it first). A choice that was wrong from the start is executed
+        # as chosen, so planner mistakes remain visible in the logs.
+        invalid |= (j.task['kind'] == 'prep' and j.needed_at_assign
+                    and ingredient_still_needed(j.task, view) is False)
         inspect_done = j.task['kind'] == 'inspect' and c is not None
         wait_done = j.task['kind'] == 'wait' and j.age >= 2
         if completed or inspect_done or wait_done or invalid or j.age >= self.max_job_steps:
@@ -186,6 +290,22 @@ class Executor:
         self.pending_move = (pos, (pos[0]+dx, pos[1]+dy))
         return action
 
+    def _plate_and_collect(self, task, view, inv):
+        target, interact, stage = None, True, ''
+        if inv == 'empty':
+            target = nearest(self.static, view['self']['pos'], locations(self.static, 9))
+            stage = 'plate'
+        elif inv == 'plate':
+            target = tuple(task['target'])
+            c = view['cells'].get(target)
+            interact = c is not None and c['cooked']
+            stage = 'collect'
+            # If another agent already collected it, release the job instead
+            # of carrying a plate and waiting for the whole timeout.
+            if c is not None and not c['cooked'] and c['timer'] == 0:
+                self.job.age = self.max_job_steps
+        return target, interact, stage
+
     def action(self, view):
         j = self.job
         if j is None:
@@ -195,25 +315,19 @@ class Executor:
         pos = me['pos']
         task = j.task
         target, interact, stage = None, True, ''
-        if inv == 'dish':
+        if inv == 'dish' and task['kind'] != 'recovery':
             target = nearest(self.static, pos, locations(self.static, 4))
             stage = 'deliver'
         elif task['kind'] == 'prep':
-            target = nearest(self.static, pos, locations(self.static, 10)) if inv == 'empty' else tuple(task['target'])
+            pile = 10 + task.get('ingredient', 0)
+            target = nearest(self.static, pos, locations(self.static, pile)) if inv == 'empty' else tuple(task['target'])
             stage = 'fetch' if inv == 'empty' else 'add'
+        elif task['id'].startswith('discard_') and inv in ('empty', 'plate'):
+            # Same plate/collect stages as a delivery; the dish is then put on a
+            # counter by the recovery branch below instead of being served.
+            target, interact, stage = self._plate_and_collect(task, view, inv)
         elif task['kind'] == 'delivery':
-            if inv == 'empty':
-                target = nearest(self.static, pos, locations(self.static, 9))
-                stage = 'plate'
-            elif inv == 'plate':
-                target = tuple(task['target'])
-                c = view['cells'].get(target)
-                interact = c is not None and c['cooked']
-                stage = 'collect'
-                # If another agent already collected it, release the job instead
-                # of carrying a plate and waiting for the whole timeout.
-                if c is not None and not c['cooked'] and c['timer'] == 0:
-                    j.age = self.max_job_steps
+            target, interact, stage = self._plate_and_collect(task, view, inv)
         elif task['kind'] == 'inspect':
             target, interact = tuple(task['target']), False
         elif task['kind'] == 'recovery':

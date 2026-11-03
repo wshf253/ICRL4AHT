@@ -165,7 +165,7 @@ def test_layout_selection_and_initialization():
             assert np.count_nonzero(timers) == (start == 'controlled')
             assert state_hash(state) == state_hash(initial_state(e, 0)[1])
     with pytest.raises(ValueError):
-        create_env(layout_name='cramped_room_up')
+        create_env(layout_name='fun_coordination')  # needs counter hand-offs
 
 
 def test_explicit_planner_state_encoding():
@@ -243,5 +243,175 @@ def test_screen_reports_information_gap():
     assert set(r['information_gap']) == {'prep', 'delivery'}
     # Screened design property of this layout: correct vs opposite information
     # changes the best simple ego rule's return by at least one soup each way.
+    assert min(r['information_gap'].values()) >= 20, r
+    assert r['max_failed_move_rate'] < 0.1, r
+
+
+
+# ---------------------------------------------------------------- multi-recipe (Stage 1)
+MIXED = 'long_three_pot_mixed'
+
+
+def _counts(value, n=2):
+    return [(int(value) >> (2 + 2*i)) & 3 for i in range(n)]
+
+
+def test_recipe_comes_from_observation_and_is_remembered():
+    from research.coordination.run import recipe_trackers
+    full = create_env(40, 'full', MIXED)
+    for seed in range(4):
+        obs, s = initial_state(full, seed)
+        assert [v['recipe'] for v in views(full, obs, s)] == [_counts(s.recipe)] * 2
+    part = create_env(40, 'partial', MIXED)
+    obs, s = initial_state(part, 0)
+    trackers = recipe_trackers(part)
+    v = views(part, obs, s, trackers)
+    # Indicator at x=0 is outside both radius-2 views at the start.
+    assert v[0]['recipe'] is None and v[0]['known_recipe'] is None
+    assert v[0]['recipe_info']['source'] == 'unknown'
+    assert any(c['id'].startswith('inspect_recipe') for c in candidates(v[0], part.layout.static_objects))
+    moved = s.replace(agents=s.agents.replace(pos=s.agents.pos.replace(x=s.agents.pos.x.at[0].set(1))))
+    v = views(part, part.get_obs(moved), moved, trackers)
+    assert v[0]['known_recipe'] == _counts(s.recipe) and v[0]['recipe_info']['source'] == 'observed_now'
+    v = views(part, obs, s, trackers)  # back out of view: remembered, not re-read
+    assert v[0]['recipe'] is None and v[0]['recipe_info']['source'] == 'remembered'
+    assert v[0]['known_recipe'] == _counts(s.recipe)
+
+
+def test_multi_recipe_initial_states_are_recipe_consistent():
+    from research.coordination.controller import still_possible
+    e = create_env(40, 'full', MIXED)
+    pots = pot_positions(e.layout.static_objects)
+    seen = set()
+    for seed in range(6):
+        _, s = initial_state(e, seed)
+        recipe = _counts(s.recipe)
+        assert recipe == [[2, 1], [1, 2]][seed % 2]  # recipes balanced by seed
+        seen.add(tuple(recipe))
+        cooking = [p for p in pots if int(s.grid[p[1], p[0], 2]) > 0]
+        assert len(cooking) == 1 and _counts(s.grid[cooking[0][1], cooking[0][0], 1]) == recipe
+        for x, y in pots:
+            if (x, y) != cooking[0]:
+                contents = _counts(s.grid[y, x, 1])
+                assert sum(contents) <= 2 and still_possible(contents, recipe)
+    assert len(seen) == 2
+
+
+def _view(pot_contents, recipe, holding=None, pot=(3, 0), cooked=False, timer=0):
+    inv = {'plate': holding in ('plate', 'dish'), 'cooked': holding == 'dish',
+           'ingredients': list(holding) if isinstance(holding, list) else [0, 0]}
+    return {'self': {'pos': [3, 1], 'direction': 0, 'inventory': inv}, 'others': [],
+            'cells': {pot: {'plate': False, 'cooked': cooked, 'ingredients': list(pot_contents), 'timer': timer}},
+            'recipe': recipe, 'known_recipe': recipe}
+
+
+def test_multi_recipe_menu_and_scripted_choice():
+    static = create_env(20, 'full', MIXED).layout.static_objects
+    v = _view([2, 0], [2, 1])
+    menu = candidates(v, static)
+    ids = {c['id'] for c in menu}
+    assert {'prep_3_0_ing0', 'prep_3_0_ing1'} <= ids  # both offered; planner must choose
+    task = preferred_task(menu, 'prep', v['self']['pos'], static, v)
+    assert task['id'] == 'prep_3_0_ing1'  # scripted rule adds only what the pot needs
+    held = candidates(_view([2, 0], [2, 1], holding=[0, 1]), static)
+    assert {c['id'] for c in held if c['kind'] == 'prep'} == {'prep_3_0_ing1'}
+    wrong = _view([3, 0], [2, 1], cooked=True)
+    wrong_menu = candidates(wrong, static)
+    assert {'serve_3_0', 'discard_3_0'} <= {c['id'] for c in wrong_menu}
+    assert preferred_task(wrong_menu, 'delivery', [3, 1], static, wrong)['id'] == 'discard_3_0'
+    right = _view([2, 1], [2, 1], cooked=True)
+    assert 'discard_3_0' not in {c['id'] for c in candidates(right, static)}
+    # Single-ingredient menus keep their original ids.
+    single = create_env(20, 'full').layout.static_objects
+    one = {'self': {'pos': [2, 1], 'direction': 0, 'inventory': {'plate': False, 'cooked': False, 'ingredients': [0]}},
+           'others': [], 'cells': {(2, 0): {'plate': False, 'cooked': False, 'ingredients': [1], 'timer': 0}},
+           'recipe': None, 'known_recipe': [3]}
+    assert 'prep_2_0' in {c['id'] for c in candidates(one, single)}
+
+
+def test_redundant_prep_released_but_wrong_choice_kept():
+    from research.coordination.controller import Executor
+    static = create_env(20, 'full', MIXED).layout.static_objects
+    task = {'id': 'prep_3_0_ing0', 'kind': 'prep', 'target': [3, 0], 'ingredient': 0}
+    ex = Executor(static, 0)
+    ex.assign(task, _view([1, 0], [2, 1]))       # needed when chosen
+    ex.observe(_view([2, 0], [2, 1]))            # partner added it first
+    assert ex.job is None and ex.last_outcome['outcome'] == 'target_changed'
+    ex.assign(task, _view([2, 0], [2, 1]))       # unneeded from the start
+    ex.observe(_view([2, 0], [2, 1]))
+    assert ex.job is not None                    # executed as chosen; mistake stays visible
+
+
+def _step_until(env, state, obs, ex, task, steps=80):
+    from research.coordination.run import successful_events, recipe_trackers
+    from research.coordination.scenario import primitive_key
+    transition = jax.jit(env.step_env)
+    trackers = recipe_trackers(env)
+    events, total = [], 0.0
+    v = views(env, obs, state, trackers)
+    ex.assign(task, v[0])
+    for t in range(steps):
+        v = views(env, obs, state, trackers)
+        ex.observe(v[0])
+        if ex.job is None:
+            break
+        acts = {'agent_0': ex.action(v[0]), 'agent_1': 4}
+        before = state
+        obs, state, r, _, _ = transition(primitive_key(0, t), state, acts)
+        total += float(r['agent_0'])
+        events += successful_events(before, state, acts, env.layout.static_objects)
+    return state, events, total
+
+
+def test_discard_puts_wrong_soup_on_counter_without_penalty():
+    from research.coordination.controller import Executor
+    from research.coordination.scenario import encode_ingredients
+    e = create_env(120, 'full', MIXED, 'empty')
+    _, s = initial_state(e, 0)                    # recipe [2, 1]
+    s = s.replace(grid=s.grid.at[0, 3, 1].set(encode_ingredients([0, 0, 0]) | 2))  # cooked wrong soup
+    s, events, total = _step_until(e, s, e.get_obs(s), Executor(e.layout.static_objects, 0),
+                                   {'id': 'discard_3_0', 'kind': 'recovery', 'target': [3, 0]})
+    types = [ev['type'] for ev in events]
+    assert 'dish_discarded' in types and 'wrong_delivery' not in types
+    assert total == 0 and int(s.grid[0, 3, 1]) == 0  # pot freed at no cost
+
+
+def test_wrong_delivery_detected_and_penalized():
+    from research.coordination.controller import Executor
+    from research.coordination.scenario import encode_ingredients
+    e = create_env(60, 'full', MIXED, 'empty')
+    _, s = initial_state(e, 0)                    # recipe [2, 1]
+    wrong_dish = encode_ingredients([0, 0, 0]) | 3
+    s = s.replace(agents=s.agents.replace(inventory=s.agents.inventory.at[0].set(wrong_dish)))
+    s, events, total = _step_until(e, s, e.get_obs(s), Executor(e.layout.static_objects, 0),
+                                   {'id': 'deliver', 'kind': 'delivery', 'target': None})
+    assert [ev['type'] for ev in events] == ['wrong_delivery'] and total == -20
+
+
+def test_multi_recipe_trial_uses_recipe_prompt_and_schema(tmp_path):
+    from research.coordination.llm import SYSTEM_MULTI_RECIPE
+    class Recorder:
+        systems, contexts = [], []
+        def choose(self, context, seed, audit, system=None):
+            self.systems.append(system)
+            self.contexts.append(context)
+            task = preferred_task(context['candidates'], 'prep', [5, 2], e.layout.static_objects)
+            return {'task_id': task['id'], 'partner_prediction': 'prep', 'reason': 'test'}
+    e = create_env(80, 'full', MIXED)
+    args = SimpleNamespace(backend='llm', steps=80, max_job_steps=32, observation='full', video=False)
+    rec = Recorder()
+    r = trial(args, e, rec, 1, 'delivery', 'correct', tmp_path/'mixed')
+    assert r['status'] == 'completed', r
+    assert set(rec.systems) == {SYSTEM_MULTI_RECIPE}
+    first = rec.contexts[0]['observation']
+    assert first['schema_version'] == 3 and 'public_recipe' not in first
+    assert first['recipe']['ingredient_counts'] == {'ingredient_0': 1, 'ingredient_1': 2}
+    assert r['recipe_counts'] == [1, 2]
+    assert r['shared_return'] == 20 * (r['correct_deliveries'] - r['wrong_deliveries'])
+
+
+def test_screen_mixed_layout_information_gap():
+    from research.coordination.screen import screen_layout
+    r = screen_layout(MIXED, seeds=[0, 1], steps=200)
     assert min(r['information_gap'].values()) >= 20, r
     assert r['max_failed_move_rate'] < 0.1, r

@@ -28,6 +28,35 @@ Return ONLY one JSON object with keys:
 Predict the category of work the partner is pursuing now. Never invent a task id.'''
 
 
+SYSTEM_MULTI_RECIPE = '''You coordinate with one partner in a cooking task. Maximize correct soup deliveries
+within the time budget. observation.recipe gives the current recipe as ingredient counts:
+{"ingredient_0": 2, "ingredient_1": 1} means a correct soup has exactly two ingredient_0 and one
+ingredient_1. The recipe is fixed for the whole episode. If recipe.source is "unknown", the
+recipe has not been observed yet; inspect a recipe indicator before preparing ingredients.
+A pot cooks automatically after its third ingredient of ANY type. A pot whose count of some
+ingredient exceeds the recipe can never become a correct soup. Delivering a soup that does not
+match the recipe costs the same reward a correct delivery earns. A discard job plates such a soup
+and puts it on a counter instead, which frees the pot at no penalty.
+You choose a job; a shared controller navigates and interacts for you.
+A prep job fetches ONE unit of the named ingredient and adds it to the named pot.
+A delivery job gets a plate, collects that pot's soup when ready, and delivers it.
+Both agents can do either job. Job commitment lasts until completion, target change or timeout.
+Use current observations and partner information to avoid redundant work. Partner information
+is a prior, not a command: consider current evidence. Do not assume unobserved dynamic states.
+State encoding: holding=empty means empty hands; empty_plate is a plate without soup;
+cooked_soup_on_plate is one plated soup, not two separately held objects.
+Agents carry one ingredient OR one plate OR one plated soup at a time.
+ingredient_counts maps ingredient names to quantities: {"ingredient_0": 1, "ingredient_1": 0}
+means one unit of ingredient_0 and none of ingredient_1.
+Pot status is empty, filling, cooking, or ready. Only ready soup can be collected.
+remaining_cook_steps is a countdown, not a signal to start cooking manually.
+Return ONLY one JSON object with keys:
+{"task_id": "one of the supplied candidate ids",
+ "partner_prediction": "prep|delivery|inspect|recovery|wait",
+ "reason": "one short sentence explaining the work allocation"}.
+Predict the category of work the partner is pursuing now. Never invent a task id.'''
+
+
 class ModelError(RuntimeError):
     pass
 
@@ -87,9 +116,9 @@ class ChatClient:
             raise ModelError(f'Model {self.model!r} is not served; available IDs: {ids}')
         return ids
 
-    def choose(self, context, seed, audit):
+    def choose(self, context, seed, audit, system=None):
         payload = {'model': self.model,
-                   'messages': [{'role': 'system', 'content': SYSTEM},
+                   'messages': [{'role': 'system', 'content': system or SYSTEM},
                                 {'role': 'user', 'content': json.dumps(context)}],
                    'max_tokens': self.max_tokens, 'temperature': self.temperature,
                    'seed': seed, 'response_format': {'type': 'json_object'},

@@ -10,7 +10,8 @@
 
 - OvercookedV2 기반의 열린 주방(`--layout`으로 선택, 아래 "맵 선택" 참고).
   원본 benchmark layout/평가를 수정하지 않는다.
-- 공개된 고정 레시피: 재료 0 세 개. 맵과 자신의 위치도 공개 정보다.
+- 단일 레시피 맵: 공개된 고정 레시피(재료 0 세 개). 맵과 자신의 위치도 공개 정보다.
+  다중 재료·레시피 맵은 아래 "Multi-recipe tasks (Stage 1)"을 참고한다.
 - 시작할 때 한 냄비는 조리 중이고, 나머지 냄비는 재료가 부족하다(0–2개).
 - seed로 조리 중인 냄비 위치, 남은 조리 시간, 나머지 냄비의 재료 수를 결정한다.
 - 각 seed의 모든 상대/정보 조건은 정확히 같은 초기 상태에서 출발한다.
@@ -235,10 +236,77 @@ scripted 조건 동일성, HTTP 모델 연동 및 오류 보존을 검사한다.
 ## Layout selection
 
 The RQ3 runner and Qwen launcher accept `--layout controlled|cramped_room|asymm_advantages|coord_ring|forced_coord|counter_circuit`.
-Default `controlled` preserves the original custom map. All supported maps retain the fixed ingredient-0 recipe; multi-ingredient layouts are deliberately rejected until recipe-aware execution is implemented.
+Default `controlled` preserves the original custom map. The original maps retain the fixed ingredient-0 recipe. Multi-recipe layouts are supported as described in "Multi-recipe tasks (Stage 1)" below; layouts that need counter hand-offs (e.g. `fun_coordination`, `grounded_coord_*`) are still rejected.
 `--start controlled` initializes one actual pot as cooking and, if present, another as partially filled. A one-pot map does not guarantee both work types are immediately available. `--start empty` uses the normal empty reset.
 Example: `lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --layout asymm_advantages --start empty --video`.
 Map switching does not add counter handoff skills: partitioned maps such as forced_coord can expose executor limitations and are not validated performance baselines.
+
+## Multi-recipe tasks (Stage 1)
+
+Layouts: `long_three_pot_mixed` (custom, recipes `[0,0,1]` and `[0,1,1]`), and the built-in
+open kitchens `cramped_room_up`, `cramped_room_down`, `asymm_advantages_recipes_both`
+(all four 3-ingredient recipes over ingredients 0 and 1). Each agent alone reaches every
+station and a recipe indicator, so no counter hand-off is needed.
+
+```
+long_three_pot_mixed
+WWWPWPWPWWW
+0         B
+R   A A   X
+0         B
+WWWWW1WWWWW
+```
+
+Rules and what is public:
+
+- **Recipe**: one per episode, chosen as `possible_recipes[seed % len]` so recipes are balanced
+  across seeds, then fixed (`sample_recipe_on_delivery` stays off). It is not public: an agent
+  reads it from an observed `R` cell (always visible under full observation; within radius 2
+  under partial). Each agent remembers what it has seen (`RecipeTracker`); valid only because
+  the recipe is fixed. Planner input reports `recipe.source` = `observed_now|remembered|unknown`.
+- **Controlled start**: one pot already cooks a correct soup; every other pot holds 0–2
+  ingredients drawn from the recipe.
+- **Jobs**: prep jobs name the ingredient (`prep_<x>_<y>_ing<i>`). Every type is offered; the
+  planner must work out what each pot still needs. `discard_<x>_<y>` (plate a soup and put it on
+  a counter) appears for cooking/ready pots whose contents differ from the known recipe;
+  `put_down` is offered when holding a plated soup. `inspect_recipe_<x>_<y>` appears while the
+  recipe is unknown.
+- **Mistakes cost**: any three ingredients cook automatically; delivering a wrong soup gives −20.
+  Discarding costs nothing but the time.
+- **Executor**: fetches the named ingredient. A prep job that was needed when assigned but became
+  redundant (the partner added that ingredient first) ends as `target_changed`. A prep choice that
+  was wrong from the start is executed as chosen, so planner mistakes stay in the logs.
+- **Scripted partner**: same prep/delivery priorities, plus a recipe-aware filter computed per
+  pot (never summed across pots): only needed ingredients, serve only matching soups, discard
+  wrong ones, fill an unrecoverable pot only as a last resort, inspect the recipe first if unknown.
+- **Prompt and schema**: multi-recipe layouts use `SYSTEM_MULTI_RECIPE` and planner schema 3
+  (`recipe` replaces `public_recipe`). Single-recipe layouts keep the original prompt and schema;
+  their step and decision logs were checked to be byte-identical to the previous code.
+- **New metrics** (evaluator only, from the true recipe): `wrong_delivery`, `dish_discarded`,
+  `unneeded_ingredient_added` per agent, `wrong_deliveries` and `recipe_counts` in each summary.
+
+Screen (seeds 0–7, 200 steps, controlled start, scripted rules only):
+
+| layout | gap: prep partner | gap: delivery partner | failed-move rate | result |
+|---|---|---|---|---|
+| `long_three_pot` (single recipe, reference) | +52.5 | +50.0 | 0.021 | pass |
+| `long_three_pot_mixed` | +47.5 | +35.0 | 0.028 | pass |
+| `cramped_room_up` | +0.0 | +0.0 | 0.060 | fail (one pot) |
+| `cramped_room_down` | +0.0 | +0.0 | 0.030 | fail (one pot) |
+| `asymm_advantages_recipes_both` | +5.0 | +20.0 | 0.000 | fail |
+
+The `long_three_pot_mixed` geometry was chosen over four variants (ingredient 1 on the left wall:
++32.5/+20.0; 2 cells wider: +22.5/+15.0; ingredient 1 on the right wall: +37.5/+32.5; two piles of
+each on the left: +40.0/+30.0). It keeps +45.0/+35.0 with the agents' start positions swapped.
+Scripted agents make no wrong deliveries and add no unneeded ingredients on it (full and partial
+observation, seeds 0–3).
+
+```bash
+lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --layout long_three_pot_mixed --video
+```
+
+Not in Stage 1: recipes that change during an episode (Stage 2), and counter hand-off jobs
+needed by the benchmark information-asymmetry layouts (Stage 3).
 
 ## Planner observation schema v2
 

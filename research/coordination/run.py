@@ -16,9 +16,9 @@ import numpy as np
 
 from .scenario import (PROFILES, CONDITIONS, LAYOUTS, SUPPORTED_LAYOUTS, create_env, initial_state,
                        state_hash, primitive_key, partner_information)
-from .observation import decode_observation, planner_view, inventory_kind, planner_agent
+from .observation import decode_observation, planner_view, inventory_kind, planner_agent, RecipeTracker
 from .controller import Executor, candidates, preferred_task
-from .llm import ChatClient
+from .llm import ChatClient, SYSTEM, SYSTEM_MULTI_RECIPE
 
 
 def dump(path, obj):
@@ -32,19 +32,39 @@ def positive(value):
     return v
 
 
-def views(env, obs, state):
+def views(env, obs, state, trackers=None):
     # This is the ONLY privileged-to-policy boundary: public map and OWN pose.
-    # Inventory, partner location and all dynamic cells are decoded from obs.
-    return [decode_observation(obs[f'agent_{i}'], env.layout.static_objects,
-                              (int(state.agents.pos.x[i]), int(state.agents.pos.y[i])),
-                              n=env.layout.num_ingredients, view_size=env.agent_view_size)
-            for i in range(2)]
+    # Inventory, partner location, dynamic cells and visible recipe indicators
+    # are decoded from obs. Trackers add each agent's own recipe knowledge.
+    result = [decode_observation(obs[f'agent_{i}'], env.layout.static_objects,
+                                (int(state.agents.pos.x[i]), int(state.agents.pos.y[i])),
+                                n=env.layout.num_ingredients, view_size=env.agent_view_size)
+              for i in range(2)]
+    for i, view in enumerate(result):
+        info = (trackers[i] if trackers else recipe_trackers(env)[i]).update(view)
+        view['recipe_info'] = info
+    return result
+
+
+def recipe_trackers(env):
+    return [RecipeTracker(env.layout.possible_recipes, env.layout.num_ingredients) for _ in range(2)]
+
+
+def ingredient_vector(value, n):
+    return [(int(value) >> (2 + 2*i)) & 3 for i in range(n)]
 
 
 def successful_events(before, after, acts, static):
-    """Evaluator-only primitive action events; never passed to the planner."""
+    """Evaluator-only primitive action events; never passed to the planner.
+
+    Uses the true recipe from the simulator state (evaluation only)."""
     events = []
     directions = [(0,-1), (0,1), (1,0), (-1,0)]
+    # Ingredient piles are 10+i, so the highest pile id gives the type count
+    # (matches Layout.num_ingredients for layouts built from strings).
+    n = int(np.max(static) - 9) if np.max(static) >= 10 else 1
+    plated_recipe = int(before.recipe) | 3  # PLATE | COOKED bits
+    recipe = ingredient_vector(before.recipe, n)
     for i in range(2):
         if int(acts[f'agent_{i}']) != 5:
             continue
@@ -53,10 +73,17 @@ def successful_events(before, after, acts, static):
         x = int(before.agents.pos.x[i])+dx
         y = int(before.agents.pos.y[i])+dy
         target = int(static[y, x])
-        if inv0 == 15 and inv1 == 0 and target == 4:
-            events.append({'agent': i, 'type': 'correct_delivery'})
-        if inv0 == 4 and inv1 == 0 and target == 5:
+        dish = inv0 & 3 == 3
+        if dish and inv1 == 0 and target == 4:
+            events.append({'agent': i, 'type': 'correct_delivery' if inv0 == plated_recipe else 'wrong_delivery'})
+        if dish and inv1 == 0 and target == 1:
+            events.append({'agent': i, 'type': 'dish_discarded'})
+        if inv0 & 1 == 0 and inv0 >> 2 and inv1 == 0 and target == 5:
             events.append({'agent': i, 'type': 'ingredient_added'})
+            pot = ingredient_vector(before.grid[y, x, 1], n)
+            added = ingredient_vector(inv0, n)
+            if any(p + a > r for p, a, r in zip(pot, added, recipe)):
+                events.append({'agent': i, 'type': 'unneeded_ingredient_added'})
     return events
 
 
@@ -90,6 +117,8 @@ def trial(args, env, client, seed, profile, condition, path):
     obs, state = initial_state(env, seed)
     init_hash = state_hash(state)
     controllers = [Executor(env.layout.static_objects, i, args.max_job_steps, seed) for i in range(2)]
+    trackers = recipe_trackers(env)
+    system = SYSTEM_MULTI_RECIPE if trackers[0].multi else SYSTEM
     transition = jax.jit(env.step_env)
     history, decisions = [], []
     counters = Counter()
@@ -103,6 +132,8 @@ def trial(args, env, client, seed, profile, condition, path):
                'initial_state_sha256': init_hash, 'backend': args.backend,
                'observation': args.observation, 'status': 'running',
                'ego_profile': getattr(args, 'ego_profile', None)}
+    if trackers[0].multi:  # evaluator-only record of the episode's true recipe
+        summary['recipe_counts'] = ingredient_vector(state.recipe, env.layout.num_ingredients)
     dump(path/'summary.json', summary)
     try:
         with (path/'steps.jsonl').open('w') as steps_log, (path/'decisions.jsonl').open('w') as choices_log, (path/'llm.jsonl').open('w') as llm_log:
@@ -120,12 +151,13 @@ def trial(args, env, client, seed, profile, condition, path):
                                                f'DEBUG full-state video; policy observations: {args.observation}'))
             for step in range(args.steps):
                 last_step = step
-                current = views(env, obs, state)
+                current = views(env, obs, state, trackers)
                 for i in range(2):
                     controllers[i].observe(current[i])
                 if controllers[1].job is None:
                     menu = candidates(current[1], env.layout.static_objects)
-                    task = preferred_task(menu, profile, current[1]['self']['pos'], env.layout.static_objects)
+                    task = preferred_task(menu, profile, current[1]['self']['pos'], env.layout.static_objects,
+                                          current[1])
                     controllers[1].assign(task, current[1])
                 if controllers[0].job is None:
                     if controllers[0].last_outcome:
@@ -133,16 +165,20 @@ def trial(args, env, client, seed, profile, condition, path):
                     menu = candidates(current[0], env.layout.static_objects)
                     context = {
                         'step': step, 'steps_remaining': args.steps-step,
-                        'observation': planner_view(current[0], env.layout.static_objects),
+                        'observation': planner_view(current[0], env.layout.static_objects,
+                                                    current[0]['recipe_info']),
                         'partner_information': partner_information(profile, condition),
                         'recent_own_jobs': history[-4:], 'candidates': menu,
                     }
                     if args.backend == 'llm':
-                        choice = client.choose(context, seed, audit)
+                        # Single-recipe layouts keep the original prompt and call.
+                        choice = (client.choose(context, seed, audit) if system is SYSTEM else
+                                  client.choose(context, seed, audit, system=system))
                     else:
                         # Intentionally ignores intervention text: validates mechanics,
                         # never manufactures a positive partner-information effect.
-                        task = preferred_task(menu, getattr(args, 'ego_profile', 'prep'), current[0]['self']['pos'], env.layout.static_objects)
+                        task = preferred_task(menu, getattr(args, 'ego_profile', 'prep'), current[0]['self']['pos'],
+                                              env.layout.static_objects, current[0])
                         choice = {'task_id': task['id'], 'partner_prediction': 'wait',
                                   'reason': 'Scripted plumbing check; ignores partner information.'}
                     task = next(c for c in menu if c['id'] == choice['task_id'])
@@ -167,9 +203,9 @@ def trial(args, env, client, seed, profile, condition, path):
                 demand_conflict = False
                 if same_target and jobs[0]['kind'] == jobs[1]['kind']:
                     x, y = jobs[0]['target']
-                    packed = int(state.grid[y, x, 1]) >> 2
+                    filled = sum(ingredient_vector(state.grid[y, x, 1], env.layout.num_ingredients))
                     demand_conflict = jobs[0]['kind'] == 'delivery' or (
-                        jobs[0]['kind'] == 'prep' and (packed & 3) == 2)
+                        jobs[0]['kind'] == 'prep' and filled == 2)
                 before = state
                 obs, state, rewards, done, _ = transition(primitive_key(seed, step), state, acts)
                 returns += float(rewards['agent_0'])
@@ -206,6 +242,7 @@ def trial(args, env, client, seed, profile, condition, path):
             writer.close()
         summary.update({'steps': last_step, 'shared_return': returns, 'metrics': dict(counters),
                         'correct_deliveries': sum(counters[f'agent_{i}_correct_delivery'] for i in range(2)),
+                        'wrong_deliveries': sum(counters[f'agent_{i}_wrong_delivery'] for i in range(2)),
                         'decision_count': len(decisions),
                         'choice_opportunities': sum(d['both_work_types_available'] for d in decisions),
                         'first_choice': decisions[0]['choice']['task_id'] if decisions else None,
@@ -263,10 +300,14 @@ def main():
     if args.out.exists():
         p.error('Output path exists. Choose a fresh --out to avoid overwriting experiments.')
     args.out.mkdir(parents=True)
+    env = create_env(args.steps, args.observation, args.layout, args.start)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     metadata = {**vars(args), 'out': str(args.out), 'git_commit': revision,
-                'source_sha256': source_digest(), 'planner_observation_schema': 2, 'layout_text': LAYOUTS.get(args.layout),
-                'public_information': ['static map', 'fixed recipe 0,0,0', 'own pose'],
+                'source_sha256': source_digest(), 'planner_observation_schema': 3 if len(env.layout.possible_recipes) > 1 else 2, 'layout_text': LAYOUTS.get(args.layout),
+                'public_information': (['static map', 'fixed recipe 0,0,0', 'own pose']
+                                       if len(env.layout.possible_recipes) == 1 else
+                                       ['static map', f'possible recipes {env.layout.possible_recipes}', 'own pose',
+                                        'current recipe only via observed recipe indicators; fixed per episode']),
                 'partner_access': args.observation, 'ego_access': args.observation,
                 'intervention': 'supplied partner-priority description only',
                 'method_scope': 'RQ3 controlled oracle-information diagnostic; no learned memory'}
@@ -275,7 +316,6 @@ def main():
     if client is not None:
         # Fail before any rollout when URL/model is misconfigured.
         client.check_model()
-    env = create_env(args.steps, args.observation, args.layout, args.start)
     failed = False
     for seed in args.seeds:
         for profile in args.profiles:

@@ -24,35 +24,37 @@ import jax
 import numpy as np
 
 from .controller import Executor, candidates, preferred_task
-from .run import views, successful_events, failed_moves
-from .scenario import LAYOUTS, PROFILES, create_env, initial_state, primitive_key
+from .run import views, successful_events, failed_moves, recipe_trackers
+from .scenario import LAYOUTS, SUPPORTED_LAYOUTS, PROFILES, create_env, initial_state, primitive_key
 
 
 def rollout(env, transition, seed, ego_rule, partner_profile, max_job_steps=32):
     obs, state = initial_state(env, seed)
     static = env.layout.static_objects
     executors = [Executor(static, i, max_job_steps, seed) for i in range(2)]
+    trackers = recipe_trackers(env)
     rules = (ego_rule, partner_profile)
-    shared_return, deliveries, failed, steps = 0.0, 0, 0, 0
+    shared_return, deliveries, wrong, failed, steps = 0.0, 0, 0, 0, 0
     for step in range(env.max_steps):
-        current = views(env, obs, state)
+        current = views(env, obs, state, trackers)
         for i in range(2):
             executors[i].observe(current[i])
             if executors[i].job is None:
                 menu = candidates(current[i], static)
-                executors[i].assign(preferred_task(menu, rules[i], current[i]['self']['pos'], static),
-                                    current[i])
+                executors[i].assign(preferred_task(menu, rules[i], current[i]['self']['pos'], static,
+                                                   current[i]), current[i])
         acts = {f'agent_{i}': executors[i].action(current[i]) for i in range(2)}
         before = state
         obs, state, rewards, done, _ = transition(primitive_key(seed, step), state, acts)
         shared_return += float(rewards['agent_0'])
-        deliveries += sum(e['type'] == 'correct_delivery'
-                          for e in successful_events(before, state, acts, static))
+        events = successful_events(before, state, acts, static)
+        deliveries += sum(e['type'] == 'correct_delivery' for e in events)
+        wrong += sum(e['type'] == 'wrong_delivery' for e in events)
         failed += len(failed_moves(before, state, acts, static))
         steps = step+1
         if done['__all__']:
             break
-    return {'shared_return': shared_return, 'correct_deliveries': deliveries,
+    return {'shared_return': shared_return, 'correct_deliveries': deliveries, 'wrong_deliveries': wrong,
             'failed_move_rate': failed / (2*steps)}
 
 
@@ -82,7 +84,7 @@ def screen_layout(layout, seeds, steps, max_job_steps=32):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--layouts', nargs='+', choices=sorted(LAYOUTS), default=sorted(LAYOUTS))
+    p.add_argument('--layouts', nargs='+', choices=SUPPORTED_LAYOUTS, default=sorted(LAYOUTS))
     p.add_argument('--seeds', nargs='+', type=int, default=list(range(8)))
     p.add_argument('--steps', type=int, default=200)
     p.add_argument('--max-job-steps', type=int, default=32)
