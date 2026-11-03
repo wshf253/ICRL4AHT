@@ -47,8 +47,9 @@ def parse_choice(text, menu):
         raise ModelError('Invalid task_id')
     if obj.get('partner_prediction') not in ('prep', 'delivery', 'inspect', 'recovery', 'wait'):
         raise ModelError('Invalid partner_prediction')
-    if not isinstance(obj.get('reason'), str) or len(obj['reason']) > 1200:
-        raise ModelError('Missing or excessively long reason')
+    # Generation is bounded by max_tokens; preserve long reasons for auditing.
+    if not isinstance(obj.get('reason'), str):
+        raise ModelError('Missing or non-string reason')
     return obj
 
 
