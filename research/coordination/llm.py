@@ -34,12 +34,15 @@ within the time budget. observation.recipe gives the current recipe as ingredien
 ingredient_1. The recipe is fixed for the whole episode. If recipe.source is "unknown", the
 recipe has not been observed yet; inspect a recipe indicator before preparing ingredients.
 A pot cooks automatically after its third ingredient of ANY type. A pot whose count of some
-ingredient exceeds the recipe can never become a correct soup. Delivering a soup that does not
-match the recipe costs the same reward a correct delivery earns. A discard job plates a pot's soup
-and puts it on a counter instead, which frees the pot at no penalty. Discard jobs are offered for
-every cooking or ready pot; discarding a soup that matches the recipe throws away a correct soup.
+ingredient exceeds the recipe can never become a correct soup.
+Rewards: delivering a soup that matches the recipe gives +20; delivering a soup that does not
+match gives -20. A discard job plates a pot's soup and puts it on a counter instead (0 reward),
+which frees the pot. Discard jobs are offered for every cooking or ready pot, whether or not its
+soup matches; discarding a matching soup throws away a correct soup.
 You choose a job; a shared controller navigates and interacts for you.
-A prep job fetches ONE unit of the named ingredient and adds it to the named pot.
+A prep job fetches ONE unit of the named ingredient and adds it to the named pot. While holding
+an ingredient you can only add that same ingredient, or put it down first.
+A delivery (serve) or discard job on a cooking pot fetches a plate and waits for the soup.
 A delivery job gets a plate, collects that pot's soup when ready, and delivers it.
 Both agents can do either job. Job commitment lasts until completion, target change or timeout.
 Use current observations and partner information to avoid redundant work. Partner information
@@ -51,10 +54,11 @@ ingredient_counts maps ingredient names to quantities: {"ingredient_0": 1, "ingr
 means one unit of ingredient_0 and none of ingredient_1.
 Pot status is empty, filling, cooking, or ready. Only ready soup can be collected.
 remaining_cook_steps is a countdown, not a signal to start cooking manually.
-Return ONLY one JSON object with keys:
-{"task_id": "one of the supplied candidate ids",
+Decide only after checking: compare each pot's ingredient_counts with the recipe, then consider
+what the partner is doing. Return ONLY one JSON object, with the keys in this order:
+{"reason": "at most two short sentences: what the pots need and how work is divided",
  "partner_prediction": "prep|delivery|inspect|recovery|wait",
- "reason": "one short sentence explaining the work allocation"}.
+ "task_id": "one of the supplied candidate ids"}.
 Predict the category of work the partner is pursuing now. Never invent a task id.'''
 
 
@@ -149,9 +153,11 @@ class ChatClient:
                     # identical answer, so a plain retry cannot recover. Show the
                     # rejected answer and the reason once; every attempt is logged.
                     ids = [c['id'] for c in context['candidates']]
+                    why = ('it was cut off because it was too long; keep reason to two short sentences'
+                           if 'length' in str(e) else str(e))
                     messages = messages[:2] + [
                         {'role': 'assistant', 'content': content},
-                        {'role': 'user', 'content': f'Your answer was rejected: {e}. task_id must be exactly '
+                        {'role': 'user', 'content': f'Your answer was rejected: {why}. task_id must be exactly '
                                                     f'one of {json.dumps(ids)}. Return only the JSON object.'}]
             else:
                 record['latency_s'] = time.monotonic()-start

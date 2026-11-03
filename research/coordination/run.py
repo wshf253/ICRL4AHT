@@ -312,6 +312,8 @@ def main():
                                        if len(env.layout.possible_recipes) == 1 else
                                        ['static map', f'possible recipes {env.layout.possible_recipes}', 'own pose',
                                         'current recipe only via observed recipe indicators; fixed per episode']),
+                'system_prompt_sha256': hashlib.sha256((SYSTEM_MULTI_RECIPE if len(env.layout.possible_recipes) > 1
+                                                        else SYSTEM).encode()).hexdigest(),
                 'partner_access': args.observation, 'ego_access': args.observation,
                 'intervention': 'supplied partner-priority description only',
                 'method_scope': 'RQ3 controlled oracle-information diagnostic; no learned memory'}

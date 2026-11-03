@@ -290,7 +290,15 @@ Rules and what is public:
   answer). Both attempts are in `llm.jsonl` (`feedback_retry`); summaries count
   `llm_feedback_retries` and `llm_recovered_by_feedback`. A second invalid answer fails the trial.
 - **Diagnostic report**: `python -m research.coordination.diagnose <run>/experiment` prints
-  per-trial outcomes, per-condition totals, paired effects and every rejected LLM answer.
+  per-trial outcomes, per-condition totals, paired effects, every rejected LLM answer, and ego
+  choices over all decisions by true partner and condition (duplicate rate with the partner's
+  current work; delivery share when both kinds were offered, to tell complementing from mirroring).
+- **Prompt revision (multi-recipe only)**: the first Qwen run showed the model writing `task_id`
+  before its reason, then contradicting itself and running out of tokens, and reading the penalty
+  sentence as ambiguous. `SYSTEM_MULTI_RECIPE` now states rewards as +20 / -20, says a held
+  ingredient can only be added as itself, says serve/discard on a cooking pot waits for the soup,
+  and asks for `reason` before `task_id` (at most two sentences). It adds no allocation strategy.
+  `config.json` records `system_prompt_sha256`; do not pool runs with different prompt hashes.
 
 Screen (seeds 0–7, 200 steps, controlled start, scripted rules only):
 
