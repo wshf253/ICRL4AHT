@@ -490,3 +490,20 @@ def test_invalid_task_id_retried_with_feedback():
         assert len(records) == 2 and all('error' in r for r in records)
     finally:
         server.shutdown(); server.server_close(); thread.join()
+
+
+def test_diagnose_decision_stats_and_described_type(tmp_path):
+    from research.coordination import diagnose
+    assert diagnose.described_type('prep', 'opposite') == 'delivery'
+    assert diagnose.described_type('delivery', 'correct') == 'delivery'
+    assert diagnose.described_type('prep', 'none') == 'none'
+    d = tmp_path/'seed0_prep_correct'
+    d.mkdir()
+    (d/'summary.json').write_text(json.dumps({'partner_profile': 'prep', 'condition': 'correct'}))
+    rows = [{'chosen_kind': 'delivery', 'partner_current_kind': 'prep', 'both_work_types_available': True},
+            {'chosen_kind': 'prep', 'partner_current_kind': 'prep', 'both_work_types_available': True},
+            {'chosen_kind': 'wait', 'partner_current_kind': 'delivery', 'both_work_types_available': False}]
+    (d/'decisions.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    g = diagnose.decision_stats(str(tmp_path))[('prep', 'correct')]
+    assert (g['decisions'], g['work_vs_work'], g['duplicate']) == (3, 2, 1)
+    assert (g['opportunities'], g['opportunity_chose_delivery']) == (2, 1)

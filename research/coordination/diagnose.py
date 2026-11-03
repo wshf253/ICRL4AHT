@@ -38,6 +38,37 @@ def llm_errors(run):
     return errors
 
 
+def described_type(profile, condition):
+    """Partner type the planner was told about: the true one, the other one, or none."""
+    if condition == 'none':
+        return 'none'
+    return profile if condition == 'correct' else ('delivery' if profile == 'prep' else 'prep')
+
+
+def decision_stats(run):
+    """Per (true partner, condition): what the ego chose across ALL decisions.
+
+    duplicate = ego chose the same work kind (prep/delivery) the partner was doing
+    at that moment. Compares told-about type with ego choices to tell
+    complementing (opposite kind) from mirroring (same kind as described)."""
+    groups = defaultdict(lambda: defaultdict(int))
+    for path in sorted(glob.glob(os.path.join(run, '*', 'decisions.jsonl'))):
+        summary = json.load(open(os.path.join(os.path.dirname(path), 'summary.json')))
+        key = (summary['partner_profile'], summary['condition'])
+        for line in open(path):
+            d = json.loads(line)
+            g = groups[key]
+            g['decisions'] += 1
+            g[f"chose_{d['chosen_kind']}"] += 1
+            if d['chosen_kind'] in ('prep', 'delivery') and d['partner_current_kind'] in ('prep', 'delivery'):
+                g['work_vs_work'] += 1
+                g['duplicate'] += d['chosen_kind'] == d['partner_current_kind']
+            if d.get('both_work_types_available'):
+                g['opportunities'] += 1
+                g['opportunity_chose_delivery'] += d['chosen_kind'] == 'delivery'
+    return groups
+
+
 def paired(rows):
     groups = defaultdict(dict)
     for r in rows:
@@ -84,6 +115,25 @@ def main():
         values = [pair[key] for pair in pairs if pair[key] is not None]
         if values:
             print(f"  mean {key} = {mean(values):+.1f} over {len(values)} pairs")
+    print('\nEgo decisions by true partner and condition (all decisions):')
+    print(f"  {'partner':9s} {'condition':9s} {'told':9s} {'dec':>4s} {'prep%':>6s} {'deliv%':>6s} "
+          f"{'other%':>6s} {'dup%':>5s} {'deliv%|both':>11s} {'pred':>5s} {'return':>6s}")
+    stats = decision_stats(args.run)
+    for (profile, condition), g in sorted(stats.items()):
+        n = g['decisions'] or 1
+        rs = [r for r in rows if r['partner_profile'] == profile and r['condition'] == condition]
+        accs = [r['partner_prediction_accuracy'] for r in rs if r.get('partner_prediction_accuracy') is not None]
+        other = n - g['chose_prep'] - g['chose_delivery']
+        dup = f"{100*g['duplicate']/g['work_vs_work']:.0f}" if g['work_vs_work'] else '-'
+        both = f"{100*g['opportunity_chose_delivery']/g['opportunities']:.0f}" if g['opportunities'] else '-'
+        print(f"  {profile:9s} {condition:9s} {described_type(profile, condition):9s} {g['decisions']:4d} "
+              f"{100*g['chose_prep']/n:6.0f} {100*g['chose_delivery']/n:6.0f} {100*other/n:6.0f} {dup:>5s} "
+              f"{both:>11s} {mean(accs) if accs else float('nan'):5.2f} {mean(r['shared_return'] for r in rs):6.1f}")
+    print('  dup% = ego chose the work kind the partner was doing; deliv%|both = delivery share when both kinds were offered.')
+    print('  Complementing: deliv%|both rises when told the partner prioritizes prep. Mirroring: it rises when told delivery.')
+    print(f"\nCorrect soups discarded: {sum(metric(r, 'correct_soup_discarded') for r in rows)}; "
+          f"LLM feedback retries: {sum(r['metrics'].get('llm_feedback_retries', 0) for r in rows)}, "
+          f"recovered: {sum(r['metrics'].get('llm_recovered_by_feedback', 0) for r in rows)}")
     errors = llm_errors(args.run)
     print(f'\nLLM errors: {len(errors)}')
     for e in errors:
