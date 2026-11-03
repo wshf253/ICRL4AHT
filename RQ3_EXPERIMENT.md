@@ -8,10 +8,11 @@
 
 ## 구현된 시나리오
 
-- OvercookedV2 기반의 작은 두 냄비 주방. 원본 benchmark layout/평가를 수정하지 않는다.
+- OvercookedV2 기반의 열린 주방(`--layout`으로 선택, 아래 "맵 선택" 참고).
+  원본 benchmark layout/평가를 수정하지 않는다.
 - 공개된 고정 레시피: 재료 0 세 개. 맵과 자신의 위치도 공개 정보다.
-- 시작할 때 한 냄비는 조리 중이고, 다른 냄비는 재료가 부족하다.
-- seed로 조리 중인 냄비 위치, 남은 조리 시간, 다른 냄비의 재료 수를 결정한다.
+- 시작할 때 한 냄비는 조리 중이고, 나머지 냄비는 재료가 부족하다(0–2개).
+- seed로 조리 중인 냄비 위치, 남은 조리 시간, 나머지 냄비의 재료 수를 결정한다.
 - 각 seed의 모든 상대/정보 조건은 정확히 같은 초기 상태에서 출발한다.
 - 상대는 `prep` 또는 `delivery` 우선순위만 다르고, 이동/상호작용 능력은 동일하다.
   선호 작업이 없으면 다른 일을 한다. 완료/목표 변경/timeout까지 작업에 전념한다.
@@ -27,6 +28,58 @@
 
 이 partner는 기존 utility-greedy의 버그를 고친 버전이 아니라, 연구 가설을 통제해서
 검증하기 위한 별도 정책이다. 기존 heuristic과 평가 pipeline은 보존한다.
+
+## 맵 선택
+
+맵을 바꾸면 협업 문제 자체가 바뀐다. 이 실험의 질문(상대의 작업 우선순위를 알면 도움이
+되는가)에 맞는 맵은, 상대 type에 따라 ego의 최선 작업이 달라지고 그 차이가 커야 한다.
+기존 Overcooked-AI 맵은 동선 협응, ICRL4AHT benchmark 맵은 레시피 정보 비대칭을 위한
+것이고, 카운터 전달·레시피 추론이 필요한 맵은 현재 실행기로 수행할 수 없다. 그래서 고정
+레시피의 열린 주방을 직접 정의하고, **LLM 실행 전에** 아래 검사로 맵을 고른다.
+
+| `--layout` | 구조 | 용도 |
+|---|---|---|
+| `controlled` (기본, `two_pot_small` 별칭) | 5×3 바닥, 냄비 2 | 초기 pilot. 초기 상태가 이전 실행과 bit 단위로 같다 |
+| `long_three_pot` | 9×3 바닥, 재료는 왼쪽 벽, 접시·배달은 오른쪽 벽, 냄비 3 | **본 실험 후보** |
+| `long_two_pot` | 같은 구조, 냄비 2 | 냄비 수·위치가 다른 확인용 맵 |
+
+```
+long_three_pot
+WWWPWPWPWWW
+0         B
+0   A A   X
+0         B
+WWWWWWWWWWW
+```
+
+### 사전 검사 (`research.coordination.screen`)
+
+모델을 호출하지 않는다. 실험과 같은 paired 초기 상태에서 고정 ego 규칙 두 개
+(prep-first, delivery-first: partner와 같은 규칙에 우선순위만 다름)를 각 partner와 돌린다.
+partner type t에 대한 최선 규칙을 BR(t)라 할 때
+
+    information_gap(t) = R(t, BR(t)) − R(t, BR(t의 반대))
+
+는 반대 정보 대신 맞는 정보대로 행동했을 때 얻는 이득이다. 같은 규칙이 두 type 모두에
+최선이면 0이고, 그 맵에서는 correct/opposite 개입이 성능을 바꿀 여지가 없다. 단순 규칙
+두 개로 잰 진단값이며 LLM이 낼 수 있는 효과의 상한이 아니다.
+
+```bash
+JAX_PLATFORMS=cpu uv run --locked python -m research.coordination.screen --out outputs/rq3_screen.json
+```
+
+통과 기준(기본값, LLM 실행 전에 고정): 모든 type에서 `information_gap >= 20`(수프 1개)이고
+이동 실패율 < 0.10. seed 0–7, 200 steps 결과:
+
+| layout | gap: prep 상대 | gap: delivery 상대 | 이동 실패율 | 판정 |
+|---|---|---|---|---|
+| `two_pot_small` | +12.5 | +30.0 | 0.031 | 탈락 |
+| `long_three_pot` | +52.5 | +50.0 | 0.021 | 통과 |
+| `long_two_pot` | +37.5 | +22.5 | 0.011 | 통과 |
+
+`long_three_pot`은 agent 시작 위치를 서로 바꿔도 +57.5/+37.5로 유지되었다. 세로를 늘리거나
+냄비를 4개로 늘린 변형은 개선이 없어 등록하지 않았다. 이 표는 위 seed와 규칙에 대한
+진단이며, 효과가 한 맵에만 국한되지 않음을 보이려면 본 실험 맵 외에 확인용 맵도 함께 보고한다.
 
 ## 비교 조건
 
@@ -104,6 +157,9 @@ API 인증이 설정된 경우 `ICRL_LLM_API_KEY`를 환경변수로 지정한�
 ```bash
 # 더 많은 paired seeds. 실험 전 seed 목록을 고정한다.
 lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --seeds 0 1 2 3 4 --steps 200
+
+# 사전 검사를 통과한 맵으로 실행
+lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --layout long_three_pot --video
 
 # 부분 관측 확장 (기본 RQ3 full 결과와 섞지 않는다)
 lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh --observation partial --video
@@ -199,3 +255,15 @@ Re-run identical conditions to evaluate this representation correction separatel
 Run `python -m research.coordination.role_matrix --layout counter_circuit --start empty --steps 400 --seeds 0 1 2 3 4 5 6 7 8 9 --out outputs/role_matrix`.
 This runs every combination of robot prep/delivery priority and partner prep/delivery priority with the same executor. Preference is a priority, not a strict role: both agents fall back to other work. Optional `--video` saves each rollout.
 `role_matrix.json` contains all trials, four cell means, matched-seed delivery-minus-prep robot effects, delivery timestamps, and time to `--target-deliveries` (default 4). Unreached targets have null times; report reach counts alongside conditional mean times. Failed trials are preserved and excluded from paired comparisons. This diagnoses partner-dependent strategy value within two heuristics, not optimal behavior or ToM. With empty resets seeds can share an identical initial state.
+
+## 기존 실험 브랜치와 통합
+
+커스텀 맵은 기존 `--layout` 선택지에 추가되었다. `counter_circuit` 등 기존 맵,
+`--start controlled/empty`, schema v2 상태 표현 및 `role_matrix`는 유지된다.
+위 screen 표는 controlled 시작·200스텝 결과이며 empty·400스텝 결과와 직접 비교하지 않는다.
+
+```bash
+# 최근 실험과 같은 빈 주방·400스텝 조건
+lab-run --new --gpus 1 -- bash scripts/run_qwen35_rq3.sh \
+  --layout long_three_pot --start empty --steps 400 --video
+```

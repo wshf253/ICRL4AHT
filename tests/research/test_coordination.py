@@ -7,7 +7,8 @@ import jax
 import numpy as np
 import pytest
 
-from research.coordination.scenario import create_env, initial_state, state_hash, partner_information
+from research.coordination.scenario import (LAYOUTS, create_env, initial_state, state_hash,
+                                           partner_information, pot_positions)
 from research.coordination.observation import decode_observation, planner_view
 from research.coordination.controller import candidates, preferred_task
 from research.coordination.llm import ChatClient, ModelError, parse_choice
@@ -200,3 +201,47 @@ def test_role_matrix_pairing_and_censored_times():
     assert all(p['delivery_minus_prep_target_steps'] is None for p in result['paired_effects'])
     rows[0]['status'] = 'error'
     assert len(aggregate(rows, [0])['excluded_pairs']) == 1
+
+def _pilot_initial_grid(env, seed):
+    # The original two_pot_small initializer, kept verbatim as a reference.
+    from envs.overcooked_v2.common import DynamicObject
+    _, state = env.reset(jax.random.PRNGKey(seed))
+    rng = np.random.default_rng(seed)
+    cooking_x = int(rng.choice([2, 4]))
+    timer = int(rng.integers(5, 11))
+    count = int(rng.integers(0, 3))
+    ing = int(DynamicObject.ingredient(0))
+    grid = state.grid.at[0, cooking_x, 1].set(3 * ing)
+    grid = grid.at[0, cooking_x, 2].set(timer)
+    return grid.at[0, 6 - cooking_x, 1].set(count * ing)
+
+
+def test_default_layout_initial_states_unchanged(env):
+    for seed in range(6):
+        assert np.array_equal(initial_state(env, seed)[1].grid, _pilot_initial_grid(env, seed))
+
+
+@pytest.mark.parametrize('layout', sorted(LAYOUTS))
+def test_layouts_pair_states_and_offer_both_jobs(layout):
+    for observation in ('full', 'partial'):
+        e = create_env(40, observation, layout)
+        pots = pot_positions(e.layout.static_objects)
+        for seed in (0, 1, 2):
+            obs, s = initial_state(e, seed)
+            assert state_hash(s) == state_hash(initial_state(e, seed)[1])
+            timers = [int(s.grid[y, x, 2]) for x, y in pots]
+            assert sum(t > 0 for t in timers) == 1  # exactly one pot already cooking
+            if observation == 'full':
+                for v in views(e, obs, s):
+                    kinds = {c['kind'] for c in candidates(v, e.layout.static_objects)}
+                    assert {'prep', 'delivery'} <= kinds
+
+
+def test_screen_reports_information_gap():
+    from research.coordination.screen import screen_layout
+    r = screen_layout('long_three_pot', seeds=[0], steps=200)
+    assert set(r['information_gap']) == {'prep', 'delivery'}
+    # Screened design property of this layout: correct vs opposite information
+    # changes the best simple ego rule's return by at least one soup each way.
+    assert min(r['information_gap'].values()) >= 20, r
+    assert r['max_failed_move_rate'] < 0.1, r

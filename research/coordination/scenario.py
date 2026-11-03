@@ -7,16 +7,43 @@ import numpy as np
 
 from envs.overcooked_v2.layouts import Layout, overcooked_v2_layouts
 from envs.overcooked_v2.overcooked import OvercookedV2
-from envs.overcooked_v2.common import DynamicObject
+from envs.overcooked_v2.common import DynamicObject, StaticObject
 
-LAYOUT_TEXT = """
+LAYOUTS = {
+    # Original RQ3 pilot kitchen. Kept bit-identical (initial states included)
+    # so earlier runs stay comparable.
+    'two_pot_small': """
 WWPWPWW
 O     B
 W A A W
 W     W
 WWXWXWW
-"""
-SUPPORTED_LAYOUTS = ('controlled', 'cramped_room', 'asymm_advantages', 'coord_ring', 'forced_coord', 'counter_circuit')
+""",
+    # Ingredients on the far-left wall, plates and serving on the far-right
+    # wall, three pots in between. A wrongly duplicated job costs a full
+    # crossing, and three pots keep cooking time from capping throughput.
+    'long_three_pot': """
+WWWPWPWPWWW
+0         B
+0   A A   X
+0         B
+WWWWWWWWWWW
+""",
+    # Same geometry with two pots: separates "distance" from "pot count".
+    'long_two_pot': """
+WWWWPWPWWWW
+0         B
+0   A A   X
+0         B
+WWWWWWWWWWW
+""",
+}
+DEFAULT_LAYOUT = 'two_pot_small'
+# Backward-compatible name for the original layout text.
+LAYOUT_TEXT = LAYOUTS[DEFAULT_LAYOUT]
+
+LAYOUTS['controlled'] = LAYOUT_TEXT
+SUPPORTED_LAYOUTS = ('controlled', 'cramped_room', 'asymm_advantages', 'coord_ring', 'forced_coord', 'counter_circuit', 'two_pot_small', 'long_two_pot', 'long_three_pot')
 
 PROFILES = ('prep', 'delivery')
 CONDITIONS = ('none', 'correct', 'opposite')
@@ -47,14 +74,21 @@ def create_env(steps=200, observation='full', layout_name='controlled', start='c
         raise ValueError('Unsupported layout: executor supports fixed ingredient-0 recipes only')
     if start not in ('controlled', 'empty'):
         raise ValueError(start)
-    layout = (Layout.from_string(LAYOUT_TEXT, possible_recipes=[[0, 0, 0]])
-              if layout_name == 'controlled' else overcooked_v2_layouts[layout_name])
+    layout = (Layout.from_string(LAYOUTS[layout_name], possible_recipes=[[0, 0, 0]])
+              if layout_name in LAYOUTS else overcooked_v2_layouts[layout_name])
     env = OvercookedV2(layout=layout, max_steps=steps,
                        agent_view_size=None if observation == 'full' else 2,
                        random_reset=False, random_agent_positions=False,
                        negative_rewards=True, sample_recipe_on_delivery=False)
     env.research_start = start
+    env.rq3_layout = layout_name
     return env
+
+
+def pot_positions(static_map):
+    """Pots as (x, y), ordered left to right then top to bottom."""
+    ys, xs = np.nonzero(np.asarray(static_map) == int(StaticObject.POT))
+    return sorted(zip(xs.tolist(), ys.tolist()))
 
 
 def initial_state(env, seed):
@@ -62,6 +96,19 @@ def initial_state(env, seed):
     # cooking pot, ingredient count in the other pot, and initial cooking timer.
     _, state = env.reset(jax.random.PRNGKey(seed))
     if env.research_start == 'empty':
+        return env.get_obs(state), state
+    if env.rq3_layout in ('long_two_pot', 'long_three_pot'):
+        rng = np.random.default_rng(seed)
+        pots = pot_positions(env.layout.static_objects)
+        cooking = pots[int(rng.choice(len(pots)))]
+        timer = int(rng.integers(5, 11))
+        ing = int(DynamicObject.ingredient(0))
+        grid = state.grid.at[cooking[1], cooking[0], 1].set(3 * ing)
+        grid = grid.at[cooking[1], cooking[0], 2].set(timer)
+        for x, y in pots:
+            if (x, y) != cooking:
+                grid = grid.at[y, x, 1].set(int(rng.integers(0, 3)) * ing)
+        state = state.replace(grid=grid)
         return env.get_obs(state), state
     rng = np.random.default_rng(seed)
     pots = np.argwhere(np.asarray(env.layout.static_objects) == 5)

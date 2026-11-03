@@ -14,7 +14,7 @@ import traceback
 import jax
 import numpy as np
 
-from .scenario import (PROFILES, CONDITIONS, LAYOUT_TEXT, SUPPORTED_LAYOUTS, create_env, initial_state,
+from .scenario import (PROFILES, CONDITIONS, LAYOUTS, SUPPORTED_LAYOUTS, create_env, initial_state,
                        state_hash, primitive_key, partner_information)
 from .observation import decode_observation, planner_view, inventory_kind, planner_agent
 from .controller import Executor, candidates, preferred_task
@@ -60,6 +60,22 @@ def successful_events(before, after, acts, static):
     return events
 
 
+def failed_moves(before, after, acts, static):
+    """Agents whose move toward free floor left them in place (collision or
+    blockage). Turning toward a station is not counted. Evaluator-only."""
+    failed = []
+    for i in range(2):
+        a = int(acts[f'agent_{i}'])
+        if a >= 4:
+            continue
+        dx, dy = ((1, 0), (0, 1), (-1, 0), (0, -1))[a]  # Actions: right, down, left, up
+        x0, y0 = int(before.agents.pos.x[i]), int(before.agents.pos.y[i])
+        if int(static[y0+dy, x0+dx]) == 0 and (x0, y0) == (
+                int(after.agents.pos.x[i]), int(after.agents.pos.y[i])):
+            failed.append(i)
+    return failed
+
+
 def source_digest():
     root = Path(__file__).parent
     h = hashlib.sha256()
@@ -81,7 +97,9 @@ def trial(args, env, client, seed, profile, condition, path):
     writer = None
     last_step = 0
     finished = False
+    title = f"RQ3 {getattr(env, 'rq3_layout', 'controlled task')}"
     summary = {'seed': seed, 'partner_profile': profile, 'condition': condition,
+               'layout': getattr(env, 'rq3_layout', None),
                'initial_state_sha256': init_hash, 'backend': args.backend,
                'observation': args.observation, 'status': 'running',
                'ego_profile': getattr(args, 'ego_profile', None)}
@@ -98,7 +116,7 @@ def trial(args, env, client, seed, profile, condition, path):
                 import imageio.v2 as imageio
                 from scripts.preview_teammates import frame
                 writer = imageio.get_writer(path/'rollout.mp4', fps=8, codec='libx264', macro_block_size=2)
-                writer.append_data(frame(state, 'RQ3 controlled task', 0, 0,
+                writer.append_data(frame(state, title, 0, 0,
                                                f'DEBUG full-state video; policy observations: {args.observation}'))
             for step in range(args.steps):
                 last_step = step
@@ -159,18 +177,10 @@ def trial(args, env, client, seed, profile, condition, path):
                 events = successful_events(before, state, acts, env.layout.static_objects)
                 for event in events:
                     counters[f"agent_{event['agent']}_{event['type']}"] += 1
-                static = env.layout.static_objects
                 for i in range(2):
                     counters[f'agent_{i}_stay_steps'] += int(acts[f'agent_{i}'] == 4)
-                    # Navigation diagnostic: a move toward free floor that did not
-                    # change position (agent collision/blocked). Turns are excluded.
-                    a = int(acts[f'agent_{i}'])
-                    if a < 4:
-                        dx, dy = ((1, 0), (0, 1), (-1, 0), (0, -1))[a]
-                        x0, y0 = int(before.agents.pos.x[i]), int(before.agents.pos.y[i])
-                        if int(static[y0+dy, x0+dx]) == 0 and (x0, y0) == (
-                                int(state.agents.pos.x[i]), int(state.agents.pos.y[i])):
-                            counters[f'agent_{i}_failed_move_steps'] += 1
+                for i in failed_moves(before, state, acts, env.layout.static_objects):
+                    counters[f'agent_{i}_failed_move_steps'] += 1
                 record = {'step': step+1, 'actions': acts, 'jobs': jobs,
                           'rewards': {k: float(v) for k, v in rewards.items()},
                           'events': events, 'duplicate_demand': demand_conflict,
@@ -178,7 +188,7 @@ def trial(args, env, client, seed, profile, condition, path):
                           'done': bool(done['__all__'])}
                 steps_log.write(json.dumps(record)+'\n')
                 if writer is not None:
-                    writer.append_data(frame(state, 'RQ3 controlled task', step+1, returns,
+                    writer.append_data(frame(state, title, step+1, returns,
                                                    f'DEBUG full-state video; policy observations: {args.observation}'))
                 last_step = step+1
                 if record['done']:
@@ -255,7 +265,7 @@ def main():
     args.out.mkdir(parents=True)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
     metadata = {**vars(args), 'out': str(args.out), 'git_commit': revision,
-                'source_sha256': source_digest(), 'planner_observation_schema': 2, 'layout_text': LAYOUT_TEXT if args.layout == 'controlled' else None,
+                'source_sha256': source_digest(), 'planner_observation_schema': 2, 'layout_text': LAYOUTS.get(args.layout),
                 'public_information': ['static map', 'fixed recipe 0,0,0', 'own pose'],
                 'partner_access': args.observation, 'ego_access': args.observation,
                 'intervention': 'supplied partner-priority description only',
