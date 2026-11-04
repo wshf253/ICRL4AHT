@@ -143,7 +143,7 @@ M2 compliance of the LLM human (Qwen3.8-27B plays each persona against a scripte
 10 episodes per persona; revise any persona's wording below 70%):
 
 ```bash
-lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/m2_compliance.yaml --workers 8
+lab-run --new --spare --gpus 1 --cpus 24 --mem 120G -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/m2_compliance.yaml --workers 8
 ```
 ```bash
 uv run --locked python -m research.coop_ci.analyze outputs/coop_ci/<run_dir>
@@ -153,7 +153,7 @@ Exp A pilot, closed loop (A0 A1 A1c A2 A3 A4 + scripted references; 2 layouts x 
 episodes; ~216 episodes):
 
 ```bash
-MAX_NUM_SEQS=32 lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/expA_pilot.yaml --workers 32
+MAX_NUM_SEQS=32 lab-run --new --spare --gpus 1 --cpus 24 --mem 120G -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/expA_pilot.yaml --workers 32
 ```
 ```bash
 uv run --locked python -m research.coop_ci.analyze outputs/coop_ci/<run_dir> --ref A0
@@ -162,7 +162,7 @@ uv run --locked python -m research.coop_ci.analyze outputs/coop_ci/<run_dir> --r
 Gate 0 with the LLM human as the partner (3 sampled rollouts per state):
 
 ```bash
-COOP_ENTRY=validate lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/gate0_validation.yaml --partner-backend qwen3.8-27b-partner --families F1 --workers 16
+MAX_NUM_SEQS=32 COOP_ENTRY=validate lab-run --new --spare --gpus 1 --cpus 24 --mem 120G -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/gate0_validation.yaml --partner-backend qwen3.8-27b-partner --families F1 --layouts shared_1pot,split_1pot --no-sanity --workers 32
 ```
 
 More throughput: one served model handles both roles, so a second model is never needed.
