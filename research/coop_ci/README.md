@@ -105,6 +105,19 @@ The remaining F1 misses are mostly the other ingredient (tomato_supplier fetched
 times) or a short wait. The LLM human with a scripted neutral ego makes about as many dishes as
 the scripted pair (shared_1pot 6.0-6.4 vs 6.7). Next: Gate 0 with the LLM human as partner.
 
+## Gate 0 with the LLM human (Qwen3.8-27B partner, F1)
+
+| layout | vs onion_supplier | vs tomato_supplier | complementary − neutral (onion / tomato) | verdict |
+|---|---|---|---|---|
+| shared_1pot | +15.8 [10.2, 21.8] | +13.8 [8.2, 19.8] | +7.4 / +0.4 | **passes** |
+| split_1pot | +14.2 [10.2, 18.2] | +10.4 [6.7, 14.4] | +7.3 / +5.1 | **passes** |
+
+The partner sensitivity survives (and grows) with a real LLM partner: complementary − conflicting
+is +10 to +16 per 150 steps (about 0.5-0.8 dish), against +4 to +11 with the scripted twin;
+conflicting allocations cause more wrong-soup adds (1.5-1.9 vs 0.1-0.3) and duplicate ingredients.
+A partner-blind greedy cook recovers part of the gap, so the headroom for partner information over
+`neutral` is about +5 to +7, except against tomato_supplier on shared_1pot (~0).
+
 ## Run on the server
 
 ```bash
@@ -134,6 +147,16 @@ lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/confi
 ```
 ```bash
 uv run --locked python -m research.coop_ci.analyze outputs/coop_ci/<run_dir>
+```
+
+Exp A pilot, closed loop (A0 A1 A1c A2 A3 A4 + scripted references; 2 layouts x 2 personas x 6
+episodes; ~216 episodes):
+
+```bash
+MAX_NUM_SEQS=32 lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/expA_pilot.yaml --workers 32
+```
+```bash
+uv run --locked python -m research.coop_ci.analyze outputs/coop_ci/<run_dir> --ref A0
 ```
 
 Gate 0 with the LLM human as the partner (3 sampled rollouts per state):

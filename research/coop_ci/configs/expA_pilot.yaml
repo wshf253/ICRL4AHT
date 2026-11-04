@@ -1,0 +1,25 @@
+# Exp A pilot (IMPLEMENTATION_PLAN M4, closed loop only): does the ego infer and use partner information?
+# F1 on the two layouts that passed Gate 0 with the LLM human. Ego and partner are the same served
+# Qwen3.8-27B with different prompts. Seats alternate by episode index; every condition sees the same
+# seeds (paired by layout x persona x episode).
+#   A0 standard plan | A1 structured partner reasoning | A1c token-matched generic reasoning
+#   A2 true profile | A3 partner's committed macro | A4 mismatched profile (privileged diagnostics)
+#   ref_* scripted egos against the same LLM human: the Gate 0 allocations over full episodes
+name: expA_pilot
+seed: 0
+env: {max_steps: 300}
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+cells:
+  - {layout: shared_1pot, personas: [onion_supplier, tomato_supplier]}
+  - {layout: split_1pot, personas: [onion_supplier, tomato_supplier]}
+conditions:
+  - {name: A0, condition: A0}
+  - {name: A1, condition: A1, words: 80}
+  - {name: A1c, condition: A1c, words: 80}
+  - {name: A2, condition: A2}
+  - {name: A3, condition: A3}
+  - {name: A4, condition: A4}
+  - {name: ref_complementary, ego: complementary}
+  - {name: ref_conflicting, ego: conflicting}
+  - {name: ref_neutral, ego: neutral}
+episodes_per_cell: 6
