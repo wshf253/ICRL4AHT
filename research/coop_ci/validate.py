@@ -28,8 +28,9 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait
 from statistics import mean
 
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
@@ -62,40 +63,119 @@ def family_personas(personas: dict, fam: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 # Work units
 # --------------------------------------------------------------------------- #
-def gate0_unit(u: dict) -> list[dict]:
-    """All branch rollouts from the states of one (layout, family, persona, seed)."""
-    personas = u["personas"]
+def _episode(u: dict, backends=None) -> Episode:
+    """The warm-up episode of a unit (neutral ego + partner), reset to its seed."""
+    personas, pid = u["personas"], u["persona"]
     env = _env(u["layout"], u["max_steps"])
     seed = stable_seed(u["seed0"], "gate0", u["seed_idx"])
     env.reset(seed)
-    seat = u["seed_idx"] % 2
-    backends = Backends(u["backend_specs"]) if u["partner"] != "scripted" else None
-    usage = Usage()
-    pid = u["persona"]
-    epi = Episode(env, seed, seat, ego_policy(personas, "neutral"),
-                  make_partner(u["partner"], pid, personas, backends, usage), personas[pid], record_trace=False)
+    if backends is None and u["partner"] != "scripted":
+        backends = Backends(u["backend_specs"])
+    return Episode(env, seed, u["seed_idx"] % 2, ego_policy(personas, "neutral"),
+                   make_partner(u["partner"], pid, personas, backends, Usage()), personas[pid], record_trace=False)
+
+
+def gate0_warmup(u: dict) -> list:
+    """Matched states of one (layout, family, persona, seed): snapshots at every t0. The warm-up is
+    run once and shared by all branches, so the branches start from identical states even when
+    the partner is a sampled LLM."""
+    epi = _episode(u)
     snaps = []
     for t0 in sorted(u["t0"]):
         epi.run(t0)
         snaps.append((t0, epi.snapshot()))
-    allocs = [f"as:{p}" for p in family_personas(personas, u["family"])] + ["neutral"]
-    out = []
-    for t0, snap in snaps:
-        for alloc in allocs:
-            for r in range(u["rollouts"]):
-                epi.restore(snap)
-                for e in epi.ex.values():
-                    e.salt = seed * 7 + 1000 * (r + 1)
-                if u["partner"] != "scripted":
-                    epi.pols[epi.partner].salt = r + 1   # sampled LLM-human rollouts
-                epi.replace_policy(seat, ego_policy(personas, alloc), salt=r)
-                epi.run(t0 + u["horizon"])
-                m = epi.metrics()
-                out.append({"layout": u["layout"], "family": u["family"], "persona": pid, "seed_idx": u["seed_idx"],
-                            "t0": t0, "state": f"{u['seed_idx']}@{t0}", "alloc": alloc[3:] if alloc.startswith("as:") else alloc,
-                            "rollout": r, "ego_seat": seat, **m})
     epi.close()
-    return out
+    return snaps
+
+
+def branch_tasks(u: dict, snaps: list) -> list:
+    allocs = [f"as:{p}" for p in family_personas(u["personas"], u["family"])] + ["neutral"]
+    return [(u, t0, snap, alloc, r) for t0, snap in snaps for alloc in allocs for r in range(u["rollouts"])]
+
+
+def gate0_branch(task) -> dict:
+    """One rollout: from a saved state, the ego follows one allocation policy for `horizon` steps."""
+    u, t0, snap, alloc, r = task
+    epi = _episode(u)
+    seed, seat = epi.seed, epi.ego
+    epi.restore(snap)
+    for e in epi.ex.values():
+        e.salt = seed * 7 + 1000 * (r + 1)
+    if u["partner"] != "scripted":
+        epi.pols[epi.partner].salt = r + 1   # sampled LLM-human rollouts
+    epi.replace_policy(seat, ego_policy(u["personas"], alloc), salt=r)
+    epi.run(t0 + u["horizon"])
+    epi.close()
+    return {"layout": u["layout"], "family": u["family"], "persona": u["persona"], "seed_idx": u["seed_idx"],
+            "t0": t0, "state": f"{u['seed_idx']}@{t0}", "alloc": alloc[3:] if alloc.startswith("as:") else alloc,
+            "rollout": r, "ego_seat": seat, **epi.metrics()}
+
+
+def gate0_unit(u: dict) -> list[dict]:
+    """All branch rollouts of one unit, sequentially (process pool, scripted partner)."""
+    return [gate0_branch(t) for t in branch_tasks(u, gate0_warmup(u))]
+
+
+class Progress:
+    def __init__(self, total: int, what: str, every_s: float = 60.0):
+        self.total, self.what, self.every = total, what, every_s
+        self.done, self.t0, self.last = 0, time.time(), 0.0
+
+    def add(self, n: int = 1, force: bool = False):
+        self.done += n
+        now = time.time()
+        if force or now - self.last >= self.every or self.done == self.total:
+            self.last = now
+            el = now - self.t0
+            eta = el / self.done * (self.total - self.done) if self.done else float("nan")
+            print(f"[{self.done}/{self.total} {self.what}] {el / 60:.1f} min elapsed, ~{eta / 60:.0f} min left",
+                  flush=True)
+
+
+def run_rollouts(units: list, workers: int, threads: bool, out_path: str) -> list:
+    """Run every branch rollout, appending each result to `out_path` as soon as it is done."""
+    rows = []
+    with open(out_path, "a") as f:
+        def keep(rs):
+            for r in rs:
+                f.write(json.dumps(r, default=str) + "\n")
+            f.flush()
+            rows.extend(rs)
+
+        n_alloc = {u["family"]: len(family_personas(u["personas"], u["family"])) + 1 for u in units}
+        total = sum(len(u["t0"]) * n_alloc[u["family"]] * u["rollouts"] for u in units)
+        prog = Progress(total, "rollouts")
+        if workers <= 1:
+            for u in units:
+                for t in branch_tasks(u, gate0_warmup(u)):
+                    keep([gate0_branch(t)])
+                    prog.add()
+            return rows
+        if not threads:  # scripted: one process per unit, CPU bound
+            with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn")) as ex:
+                futs = [ex.submit(gate0_unit, u) for u in units]
+                for fu in as_completed(futs):
+                    rs = fu.result()
+                    keep(rs)
+                    prog.add(len(rs))
+            return rows
+        # LLM partner: warm-ups first, then every rollout is its own task, so all workers stay busy
+        # and results arrive from the first minutes on.
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            pending = {ex.submit(gate0_warmup, u): ("warm", u) for u in units}
+            warm = Progress(len(units), "warm-ups (matched states)", every_s=30.0)
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for fu in done:
+                    kind, u = pending.pop(fu)
+                    if kind == "warm":
+                        warm.add()
+                        for t in branch_tasks(u, fu.result()):
+                            pending[ex.submit(gate0_branch, t)] = ("branch", u)
+                    else:
+                        keep([fu.result()])
+                        prog.add()
+    return rows
 
 
 def sanity_unit(u: dict) -> dict:
@@ -155,16 +235,21 @@ def report(rows, sanity, cfg, personas) -> tuple[str, list]:
         ok_alloc, ok_hor, best = True, True, {}
         for pid in fps:
             comp, conf = personas[pid]["complement"], pid
+            if (layout, fam, pid, comp) not in ret or (layout, fam, pid, conf) not in ret:
+                lines.append(f"| {pid} | (no rollouts yet) | | | | | |")
+                ok_alloc = ok_hor = False
+                continue
             a, b = ret[(layout, fam, pid, comp)], ret[(layout, fam, pid, conf)]
             d, (lo, hi), n = paired_diff(a, b)
             dish = mean(dishes[(layout, fam, pid, comp)].values())
             m_ok, h_ok = lo > 0, dish >= 2
             ok_alloc &= m_ok
             ok_hor &= h_ok
-            best[pid] = max(fps, key=lambda q: mean(ret[(layout, fam, pid, q)].values()))
+            have = [q for q in fps if (layout, fam, pid, q) in ret]
+            best[pid] = max(have, key=lambda q: mean(ret[(layout, fam, pid, q)].values()))
             lines.append(f"| {pid} | {fmt(mean(a.values()))} | {fmt(mean(b.values()))} | {fmt(d)} [{fmt(lo)}, {fmt(hi)}] (n={n}) "
                          f"| {fmt(dish, 2)} | {'yes' if m_ok else 'NO'} | {'yes' if h_ok else 'NO'} |")
-        sens = len(set(best.values())) == len(fps)
+        sens = len(best) == len(fps) and len(set(best.values())) == len(fps)
         passed = ok_alloc and sens and ok_hor
         lines += ["", f"Best allocation per partner type: {best} -> partner-sensitive: {'yes' if sens else 'NO'}.",
                   f"**Gate 0 {'PASSED' if passed else 'FAILED'}** for {layout} / {fam}.", ""]
@@ -225,7 +310,21 @@ def main(argv=None):
     ap.add_argument("--no-sanity", action="store_true")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default="outputs/coop_ci")
+    ap.add_argument("--report-only", metavar="RUN_DIR",
+                    help="write report_interim.md from the rollouts a (running or finished) run has saved so far")
     a = ap.parse_args(argv)
+
+    if a.report_only:
+        res = json.load(open(os.path.join(a.report_only, "config.resolved.json")))
+        rows = [json.loads(l) for l in open(os.path.join(a.report_only, "rollouts.jsonl")) if l.strip()]
+        sp = os.path.join(a.report_only, "sanity.jsonl")
+        sanity = [json.loads(l) for l in open(sp) if l.strip()] if os.path.exists(sp) else []
+        text, verdicts = report(rows, sanity, res["config"], res["personas"])
+        text = f"> Interim report from {len(rows)} rollouts saved so far.\n\n" + text
+        with open(os.path.join(a.report_only, "report_interim.md"), "w") as f:
+            f.write(text)
+        print(text)
+        return a.report_only, verdicts
 
     cfg = load_yaml(a.config)
     personas = load_yaml(os.path.join(CONFIG_DIR, cfg.get("personas_file", "personas.yaml")))
@@ -261,10 +360,9 @@ def main(argv=None):
         json.dump({"config": cfg, "families": fams, "git_commit": commit, "argv": sys.argv,
                    "personas": personas, "backend": specs.get(cfg["partner"])}, f, indent=2)
     threads = cfg["partner"] != "scripted"   # LLM rollouts are I/O bound
-    rows = [r for rs in _pool(gate0_unit, units, a.workers, threads) for r in rs]
-    with open(os.path.join(out_dir, "rollouts.jsonl"), "w") as f:
-        for r in rows:
-            f.write(json.dumps(r, default=str) + "\n")
+    print(f"writing results as they finish to {out_dir}/rollouts.jsonl; interim report any time with\n"
+          f"  python -m research.coop_ci.validate {a.config} --report-only {out_dir}", flush=True)
+    rows = run_rollouts(units, a.workers, threads, os.path.join(out_dir, "rollouts.jsonl"))
     sanity = _pool(sanity_unit, sanity_units, a.workers) if sanity_units else []
     with open(os.path.join(out_dir, "sanity.jsonl"), "w") as f:
         for r in sanity:

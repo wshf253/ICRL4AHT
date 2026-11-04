@@ -361,3 +361,24 @@ def test_infra_after_retry_counts_forced_waits():
     m = epi.metrics()
     assert m["infra_after_retry"]["partner"] == 1.0 and m["infra_after_retry"]["ego"] == 0.0
     assert m["decision_points"]["partner"] == 20
+
+
+def test_gate0_with_an_llm_partner_streams_results_and_reports_partial_runs(tmp_path, capsys):
+    from research.coop_ci import validate
+    cfg = tmp_path / "g.yaml"
+    cfg.write_text("name: g\nseeds: 2\nt0: [0, 10]\nrollouts: 2\nhorizon: 20\npartner: scripted\n"
+                   "families:\n  F1: {layouts: [shared_1pot]}\n")
+    out, _ = validate.main([str(cfg), "--partner-backend", "mock", "--workers", "3", "--no-sanity",
+                            "--out", str(tmp_path)])
+    printed = capsys.readouterr().out
+    assert "warm-ups" in printed and "rollouts]" in printed
+    rows = [json.loads(l) for l in open(os.path.join(out, "rollouts.jsonl"))]
+    assert len(rows) == 2 * 2 * 2 * 3 * 2
+    # The branches of one state start from the same snapshot (identical warm-up).
+    first = [r for r in rows if r["state"] == "0@10" and r["persona"] == "onion_supplier"]
+    assert len(first) == 6 and {r["steps"] for r in first} == {20}
+    with open(os.path.join(out, "rollouts.jsonl"), "w") as f:  # simulate a run still in progress
+        for r in rows[:5]:
+            f.write(json.dumps(r) + "\n")
+    validate.main([str(cfg), "--report-only", out])
+    assert "Interim report from 5 rollouts" in open(os.path.join(out, "report_interim.md")).read()
