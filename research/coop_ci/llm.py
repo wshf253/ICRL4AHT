@@ -166,12 +166,16 @@ class MockBackend(Backend):
                    "partner_type": "A", "partner_next_action": "wait 2"}
         else:
             valid = [a for a in _grab_list(last, "VALID_ACTIONS:") if "<" not in a]
-            pri = ["deliver", "plate soup", "put in pot", "fetch plate"]
-            act = next((p for p in pri if p in valid), None)
+            pri = ["deliver", "plate soup", "put in", "fetch plate"]
+            act = next((a for p in pri for a in valid if a.startswith(p)), None)
             if act is None:
                 fetches = [a for a in valid if a.startswith("fetch")]
                 act = rng.choice(fetches + ["wait 2"]) if fetches else "wait 2"
             out = {}
+            for k in ("thought", "plan", "partner_current_subgoal", "evidence", "partner_tendency",
+                      "my_complementary_action_reason"):
+                if f'"{k}"' in text:
+                    out[k] = "mock"
             if '"reasoning"' in text:
                 out["reasoning"] = "mock"
             if '"partner_reasoning"' in text:

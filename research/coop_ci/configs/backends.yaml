@@ -1,6 +1,6 @@
 # Model endpoints. Everything speaks the OpenAI Chat Completions API, so moving from the local
-# open-source stage to the frontier stage = pointing `backends.agent` at another entry
-# (or passing --agent-backend on the command line).
+# open-source stage to the frontier stage = pointing `backends.ego` at another entry
+# (or passing --ego-backend on the command line).
 
 # --- Stage 1: Qwen3.8-27B served locally with vLLM (scripts/run_qwen38_coop.sh) ---------------
 qwen3.8-27b:
@@ -20,18 +20,24 @@ qwen3.8-27b:
     min_p: 0.0
     # Thinking off. Verified on the served Qwen3.8-27B: enable_thinking=false works;
     # reasoning_effort accepts only xhigh/medium/low ("none" -> HTTP 400), so it is not sent.
-    # `python -m research.coop_tom.check` re-verifies this whenever the server starts.
+    # `python -m research.coop_ci.check` re-verifies this whenever the server starts.
     chat_template_kwargs: {enable_thinking: false}
   chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS  # JSON override chosen by the check
 
-# LLM-simulated human (later): a different model family from the agent, on a second server.
-partner-llm:
+# LLM-simulated human: for now the same served Qwen3.8-27B (different prompt: a persona and a
+# private thought). The plan prefers another model family; point this entry at a second server
+# (or an API) to change that, and keep its settings fixed within an experiment.
+qwen3.8-27b-partner:
   type: openai_compat
-  base_url_env: COOP_PARTNER_BASE_URL
-  base_url: http://127.0.0.1:8001/v1
-  model: partner-llm
+  base_url_env: ICRL_LLM_BASE_URL
+  base_url: http://127.0.0.1:8000/v1
+  model_env: ICRL_LLM_MODEL
+  model: qwen3.8-27b
+  api_key_env: ICRL_LLM_API_KEY
   json_mode: true
-  params: {temperature: 0.7, top_p: 0.95, max_tokens: 160}
+  params: {temperature: 0.7, top_p: 0.8, max_tokens: 160}
+  extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}
+  chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS
 
 # --- Stage 2: frontier API (fill in when switching) -------------------------------------------
 frontier:

@@ -1,0 +1,82 @@
+# Kitchens for the cooperative-intelligence experiments.
+#   ascii           OvercookedV2 layout string: W counter/wall, A agent start, P pot, X serving window,
+#                   B plate pile, digits = ingredient piles (0 onion, 1 tomato), space = floor
+#   recipes         default recipe set (name in env.RECIPE_SETS or an explicit list of index triples)
+#   orders_visible  how many orders from the recipe sequence are open at once (both cooks see them;
+#                   any open order can be served). One per pot, so a second pot is never filled for
+#                   an order that does not exist yet.
+# Every layout is mirror-symmetric, so both seats have equal BFS access to every station type
+# (tested). The robot takes seat 0 on even seeds and seat 1 on odd seeds.
+
+shared_1pot:
+  notes: "Plan layout for F1. Every pile is 1-2 steps from the start cells; the 20-step cook time is the bottleneck."
+  orders_visible: 1
+  recipes: mixed_two
+  ascii: |
+    W0W1WXW1W0W
+    B         B
+    W  A P A  W
+    B         B
+    W1W0WXW0W1W
+
+shared_2pot:
+  notes: "Plan layout for F2. Two pots, so cooking is no longer the only bottleneck."
+  orders_visible: 2
+  recipes: mixed_01
+  ascii: |
+    W0W1WXW1W0W
+    B         B
+    W A P P A W
+    B         B
+    W1W0WXW0W1W
+
+split_1pot:
+  notes: "Onions only on the top wall, tomatoes only on the bottom wall; a trip to a pile and back is ~12 steps, so fetching what the partner already fetches costs time."
+  orders_visible: 1
+  recipes: mixed_two
+  ascii: |
+    WWW0WWW0WWW
+    W         W
+    W         W
+    B         B
+    W         W
+    X  A P A  X
+    W         W
+    B         B
+    W         W
+    W         W
+    WWW1WWW1WWW
+
+split_2pot:
+  notes: "split_1pot with two pots: supply, not cooking, limits throughput."
+  orders_visible: 2
+  recipes: mixed_two
+  ascii: |
+    WWW0WWW0WWW
+    W         W
+    W         W
+    B         B
+    W         W
+    X A P P A X
+    W         W
+    B         B
+    W         W
+    W         W
+    WWW1WWW1WWW
+
+lanes_2pot:
+  notes: "Piles on the top wall, plates and serving windows on the bottom wall, two pots in between: loading and serving happen in different places."
+  orders_visible: 2
+  recipes: mixed_two
+  ascii: |
+    WW0W1W1W0WW
+    W         W
+    W         W
+    W         W
+    W         W
+    W A P P A W
+    W         W
+    W         W
+    W         W
+    W         W
+    WWBWXWXWBWW

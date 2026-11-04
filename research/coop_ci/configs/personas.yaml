@@ -1,0 +1,52 @@
+# Partner personas: conditional tendencies, not prohibitions. Competence and speed are the same
+# for every persona; only the division of labour differs.
+#   family       F1 complementary supply, F2 parallel prep
+#   label        one-line description (injected in A2 / A4; never shown in non-oracle conditions)
+#   text         instruction for the LLM-simulated human
+#   scripted     the rule-based twin: job priorities when its hands are empty (see scripted.py)
+#   complement   the persona whose jobs are the complementary ego allocation to this one
+#   opportunity  predicate for the compliance audit: decision points where the tendency applies
+
+onion_supplier:
+  family: F1
+  label: "Usually fetches onions for the pot; switches to whatever is still missing once no more onions are needed."
+  text: >-
+    You usually fetch onions for the pot. Count what the current order still needs, given what is already in
+    the pot and what your teammate is carrying. If the order needs no more onions, fetch what is still
+    missing. Plate and serve when a soup is ready and you are free.
+  scripted: {jobs: [plate_ready, "fetch:onion", fetch_missing, plate_cooking], preferred: onion}
+  complement: tomato_supplier
+  opportunity: needs_preferred
+
+tomato_supplier:
+  family: F1
+  label: "Usually fetches tomatoes for the pot; switches to whatever is still missing once no more tomatoes are needed."
+  text: >-
+    You usually fetch tomatoes for the pot. Count what the current order still needs, given what is already in
+    the pot and what your teammate is carrying. If the order needs no more tomatoes, fetch what is still
+    missing. Plate and serve when a soup is ready and you are free.
+  scripted: {jobs: [plate_ready, "fetch:tomato", fetch_missing, plate_cooking], preferred: tomato}
+  complement: onion_supplier
+  opportunity: needs_preferred
+
+loader:
+  family: F2
+  label: "Usually fills the pots with ingredients; plates and serves only when no pot needs ingredients."
+  text: >-
+    You usually fill the pots. Whenever a pot still needs ingredients for an open order (given what is in it
+    and what your teammate is carrying), fetch one and put it in. Only when no pot needs ingredients, fetch
+    a plate, plate a soup and serve it.
+  scripted: {jobs: [fetch_missing, plate_ready, plate_cooking]}
+  complement: server
+  opportunity: pots_need_ingredients
+
+server:
+  family: F2
+  label: "Usually fetches plates and serves soups as soon as one is cooking; fills pots only when no soup needs a plate."
+  text: >-
+    You usually take care of plates and serving. As soon as a soup is cooking or ready and no free plate is
+    out, fetch a plate, wait by the pot, plate the soup and serve it. Only when no soup needs a plate, fetch
+    ingredients the pots still need.
+  scripted: {jobs: [plate_ready, plate_cooking, fetch_missing]}
+  complement: loader
+  opportunity: soup_needs_plate

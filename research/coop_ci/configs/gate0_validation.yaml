@@ -1,0 +1,13 @@
+# Gate 0 (IMPLEMENTATION_PLAN M3): is each family partner-sensitive on each layout?
+# Scripted only by default (CPU, minutes). `--partner-backend <llm>` replaces the twin by the LLM human.
+name: gate0
+seed: 0
+seeds: 10                 # x t0 values = 30 matched states per (layout, persona)
+t0: [0, 20, 40]
+rollouts: 3               # per state and ego allocation (sampled when the partner is an LLM)
+horizon: 150
+partner: scripted
+families:
+  F1: {layouts: [shared_1pot, split_1pot, split_2pot, lanes_2pot]}
+  F2: {layouts: [shared_2pot, split_2pot, lanes_2pot]}
+sanity: {seeds: 20, steps: 300}   # scripted pair, full episodes (M1/M2 acceptance)

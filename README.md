@@ -1,4 +1,4 @@
-> Cooperative-intelligence experiments (paper, first version; Qwen3.8-27B): [research/coop_tom/README.md](research/coop_tom/README.md)
+> Cooperative-intelligence experiments (paper; Gate 0 → Exp A–C, Qwen3.8-27B first): [research/coop_ci/README.md](research/coop_ci/README.md)
 
 > RQ3 상대 정보 비교 + 기존 Qwen 서빙 재사용: [RQ3_EXPERIMENT.md](RQ3_EXPERIMENT.md)
 

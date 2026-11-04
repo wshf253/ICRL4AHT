@@ -8,8 +8,8 @@ from the most minimal switch to broader ones; the first that passes is used.
 Observed with Qwen3.8-27B on vLLM: `enable_thinking: false` turns thinking off;
 `reasoning_effort` only accepts xhigh (default) / medium / low, and "none" is rejected (400).
 
-  python -m research.coop_tom.check --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b
-  python -m research.coop_tom.check ... --pick --report check.jsonl  # stdout: chosen JSON only
+  python -m research.coop_ci.check --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b
+  python -m research.coop_ci.check ... --pick --report check.jsonl  # stdout: chosen JSON only
 
 Exit code 1 if no candidate passes.
 """

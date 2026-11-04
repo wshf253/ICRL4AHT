@@ -1,0 +1,14 @@
+# M2 acceptance: does the LLM-simulated human follow its persona? (IMPLEMENTATION_PLAN M2)
+# Partner = Qwen3.8-27B playing the persona (same served model as the ego will use, different prompt).
+# Ego = scripted neutral cook, so only the partner calls the model. Read off `compliance` per persona
+# in `analyze`; any persona below 0.70 gets its wording revised before Gate 0 is rerun with the LLM human.
+name: m2_compliance
+seed: 0
+env: {max_steps: 300}
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+cells:
+  - {layout: split_2pot, personas: [onion_supplier, tomato_supplier]}
+  - {layout: shared_2pot, personas: [loader, server]}
+conditions:
+  - {name: neutral_ego, ego: neutral}
+episodes_per_cell: 10
