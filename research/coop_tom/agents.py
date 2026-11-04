@@ -14,6 +14,15 @@ from .prompts import agent_system_prompt, decision_user_prompt, human_system_pro
 MAX_TOKENS = {"direct": 64, "human": 120}
 
 
+def from_counter(env: CoopEnv, i: int, ingredient: int) -> Optional[str]:
+    """'pick up from counter x y' for a visible, reachable counter holding this ingredient.
+    Reusing set-aside ingredients keeps the few counters from filling up."""
+    held = [c for c in env.counters if env.in_view(i, c) and env.cell(c)[1]
+            and not is_plate(env.cell(c)[1]) and decode_ingredients(env.cell(c)[1]) == [ingredient]]
+    reach = reachable_targets(env, i, held)
+    return f"pick up from counter {reach[0][0]} {reach[0][1]}" if reach else None
+
+
 def stable_seed(*parts) -> int:
     h = hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()
     return int(h[:8], 16)
@@ -207,7 +216,7 @@ class ScriptedPartner(Policy):
             remaining.sort(key=lambda k: (-order.count(k), k))
         elif rule == "random":
             self.rng.shuffle(remaining)
-        return f"fetch {env.ing_name(remaining[0])}"
+        return from_counter(env, i, remaining[0]) or f"fetch {env.ing_name(remaining[0])}"
 
     def _signal(self, env, i) -> str:
         """Test-Time Protocol personas: encode the order by where a signal item sits."""
@@ -283,4 +292,4 @@ class ScriptedCook(Policy):
         reach = [k for k in remaining if k in env.piles and reachable_targets(env, i, env.piles[k])]
         if not reach:
             return Decision(env.t, i, "wait 3")
-        return Decision(env.t, i, f"fetch {env.ing_name(reach[0])}")
+        return Decision(env.t, i, from_counter(env, i, reach[0]) or f"fetch {env.ing_name(reach[0])}")

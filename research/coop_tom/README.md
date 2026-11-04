@@ -140,3 +140,10 @@ never learns from a WRONG delivery, and orders change only after correct ones, s
 - `ref_rule` patience counts from the start of the current soup; `ref_rule_oracle` sets aside a
   dish it knows is wrong instead of serving it.
 - Thinking detection (`thinking`, `truncated` per episode) and the serving-time check.
+- After the first Qwen3.8 Exp 0 (60% of robot decisions vs `starter` could not start):
+  `move to <x> <y>` on a station walks next to it (the model's most common failure was
+  `move to` the pot); every precondition failure now says what is wrong (e.g. "plate soup needs
+  a pot that is cooking or ready (pot (2,0): filling 1/3 [onion])"); the `plate soup` grammar line
+  states it needs a cooking/ready pot; scripted cook and partner reuse an ingredient set aside on
+  a counter before fetching a new one (the 4 counters of cramped_room_up filled up, leaving the
+  reference stuck). `analyze` reports the robot's action mix and the top start-failure reasons.

@@ -21,12 +21,12 @@ GRAMMAR = """\
 - fetch <ingredient>          take one ingredient from its pile (hands must be empty)
 - fetch plate                 take a plate from a plate pile (hands must be empty)
 - put in pot                  put the held ingredient into the pot
-- plate soup                  with a plate in hand, take the finished soup from the pot (waits by the pot if still cooking)
+- plate soup                  with an empty plate in hand, take the soup from a pot that is cooking (waits by it) or ready
 - deliver                     bring the held dish to the serving window X
 - place on counter <x> <y>    put the held item on that counter (omit x y for the nearest free one)
 - pick up from counter <x> <y>
 - press button                press the order button L (costs 5 points; shows the order for 10 steps)  [button layouts]
-- move to <x> <y>             walk to a floor cell (e.g. to look at something)
+- move to <x> <y>             walk to a floor cell, or next to the station/counter at (x, y)
 - wait <n>                    stay put for n steps (1-10)"""
 
 
@@ -183,12 +183,51 @@ class Executor:
             return "not holding a dish"
         if m.kind == "place_counter" and inv == 0:
             return "holding nothing"
-        if m.kind == "move_to" and (m.xy is None or not (0 <= m.xy[0] < env.W and 0 <= m.xy[1] < env.H) or not env._walkable(m.xy)):
-            return f"{m.xy} is not a floor cell"
+        if m.kind == "move_to":
+            if m.xy is None or not (0 <= m.xy[0] < env.W and 0 <= m.xy[1] < env.H):
+                return f"{m.xy} is outside the kitchen"
+            goals = self._move_goals(m.xy)
+            if not goals or bfs(env, env.agent_pos(i), goals, set()) is None:
+                return f"you cannot reach {m.xy} or any floor cell next to it"
+            return ""
         targets = self._targets(m)
         if m.kind not in ("wait", "move_to") and not targets:
-            return "no reachable target for this action"
+            return self._no_target_reason(m)
         return ""
+
+    def _move_goals(self, xy) -> set:
+        """move to (x, y): that cell if it is floor, else the floor cells next to it (a station)."""
+        env = self.env
+        if env._walkable(xy):
+            return {xy}
+        return {n for n in env.neighbors(xy) if env._walkable(n)}
+
+    def _no_target_reason(self, m: Macro) -> str:
+        """Say why nothing can be acted on, from what the agent could check by looking."""
+        env = self.env
+        pots = "; ".join(f"pot {p}: {self._pot_brief(p)}" for p in env.pots)
+        if m.kind == "plate_soup":
+            return f"plate soup needs a pot that is cooking or ready ({pots})"
+        if m.kind == "put_in_pot":
+            return f"no pot can take an ingredient now ({pots})"
+        if m.kind == "place_counter":
+            if m.xy is not None and m.xy not in env.counters:
+                return f"{m.xy} is not a counter"
+            if m.xy is not None:
+                return f"counter {m.xy} is occupied or out of reach"
+            return "no free counter you can reach (every reachable counter already holds an item)"
+        if m.kind == "pick_counter":
+            return f"there is nothing you can pick up on counter {m.xy}"
+        if m.kind in ("fetch", "fetch_plate"):
+            return "you cannot reach that pile from here"
+        return "no reachable target for this action"
+
+    def _pot_brief(self, p) -> str:
+        status, contents, extra = self.env.pot_status(p)
+        names = ", ".join(self.env.ing_name(c) for c in contents) or "empty"
+        if status == "idle":
+            return f"filling {len(contents)}/3 [{names}]"
+        return f"cooking [{names}], {extra} steps left" if status == "cooking" else f"ready [{names}]"
 
     def _targets(self, m: Macro) -> list:
         env, i = self.env, self.i
@@ -233,10 +272,11 @@ class Executor:
         me = env.agent_pos(i)
         other = {env.agent_pos(j) for j in range(env.num_agents) if j != i}
         if m.kind == "move_to":
-            if me == m.xy:
+            goals = self._move_goals(m.xy)
+            if me in goals:
                 ms.status = "done"
                 return A_STAY
-            path = bfs(env, me, {m.xy}, other) or bfs(env, me, {m.xy}, set())
+            path = bfs(env, me, goals, other) or bfs(env, me, goals, set())
             return self._step_along(path, tried_from)
         if self._complete():
             ms.status = "done"
@@ -310,7 +350,7 @@ class Executor:
             if self._complete():
                 self.ms.status = "done"
         if self.ms and self.ms.status == "running" and self.ms.macro.kind == "move_to":
-            if self.env.agent_pos(self.i) == self.ms.macro.xy:
+            if self.env.agent_pos(self.i) in self._move_goals(self.ms.macro.xy):
                 self.ms.status = "done"
 
 

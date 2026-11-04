@@ -198,3 +198,42 @@ def test_cli_rejects_a_model_that_is_not_served(fake_vllm, tmp_path, monkeypatch
     monkeypatch.setenv("ICRL_LLM_MODEL", "some-other-model")
     with pytest.raises(SystemExit):
         run.main([os.path.join(CONFIG_DIR, "exp0_smoke.yaml"), "--episodes", "1", "--out", str(tmp_path)])
+
+
+def test_move_to_a_station_walks_next_to_it():
+    env = CoopEnv("cramped_room_up", "mixed_01").reset(0)
+    ex = Executor(env, 1)
+    ex.start(parse_macro("move to 2 0", env))  # the pot: not a floor cell
+    assert ex.ms.status == "running"
+    for _ in range(10):
+        if ex.idle():
+            break
+        a = ex.act()
+        env.step({1: a})
+        ex.after_step()
+    assert ex.ms.status == "done" and env.agent_pos(1) in {(2, 1)}
+    ex.start(parse_macro("move to 9 9", env))
+    assert ex.ms.status == "failed" and "outside" in ex.ms.reason
+
+
+def test_failure_reasons_say_what_is_wrong():
+    env = CoopEnv("cramped_room_up", "mixed_01").reset(0)
+    env.state = env.state.replace(agents=env.state.agents.replace(inventory=env.state.agents.inventory.at[1].set(1)))
+    env._sync()  # robot holds an empty plate, pot is empty
+    ex = Executor(env, 1)
+    ex.start(parse_macro("plate soup", env))
+    assert ex.ms.status == "failed" and "cooking or ready" in ex.ms.reason and "filling 0/3" in ex.ms.reason
+    grid = env.state.grid
+    for c in env.counters:
+        grid = grid.at[c[1], c[0], 1].set(4)  # every counter holds an onion
+    env.state = env.state.replace(grid=grid)
+    env._sync()
+    ex.start(parse_macro("place on counter", env))
+    assert ex.ms.status == "failed" and "no free counter" in ex.ms.reason
+
+
+def test_exp0_references_do_not_get_stuck_on_full_counters(tmp_path):
+    cfg = load_config(os.path.join(CONFIG_DIR, "exp0_smoke.yaml"))
+    for persona in ("does_all", "starter"):
+        rec, _ = episode(cfg, "ref_scripted_oracle", persona, tmp_path / persona, seed=1)
+        assert rec["macro_fail"]["agent"] <= 3 and rec["n_wrong"] == 0, rec
