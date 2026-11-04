@@ -93,10 +93,11 @@ Serving settings (environment variables of `run_qwen38_coop.sh`):
 | `COOP_CHAT_TEMPLATE_KWARGS` | chosen by the check | JSON, e.g. `{"enable_thinking": false}` |
 | `ICRL_LLM_BASE_URL` | unset | if set, use that endpoint and do not start a server |
 
-**Thinking check.** Qwen3.x templates use `enable_thinking`; the Qwen3.8 guide mentions
-`reasoning_effort: none`. Instead of assuming one, `python -m research.coop_tom.check` sends a tiny
-JSON task with each candidate and keeps the first that returns no reasoning text. Its report is
-saved as `thinking_check.jsonl` next to the vLLM log. The script stops if no candidate works.
+**Thinking check.** `python -m research.coop_tom.check` sends a tiny JSON task with each
+candidate `chat_template_kwargs` and keeps the first that returns no reasoning text. Its report is
+saved as `thinking_check.jsonl` next to the vLLM log; the script stops if no candidate works.
+Verified on Qwen3.8-27B: `{"enable_thinking": false}` turns thinking off; `reasoning_effort`
+only accepts `xhigh` (default) / `medium` / `low`, so "none" is rejected with HTTP 400.
 
 ## What to read off first
 

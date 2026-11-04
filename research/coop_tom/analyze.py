@@ -155,6 +155,33 @@ def main():
     write_csv(os.path.join(out, "phases.csv"), prow)
     print("\n## Q0-c: failures by phase\n" + md(prow, list(prow[0].keys())))
 
+    # ---------------- robot action mix (from traces) ---------------- #
+    verbs = ["fetch", "put", "plate", "deliver", "place", "pick", "move", "wait"]
+    mix = defaultdict(lambda: defaultdict(int))
+    for r in eps:
+        safe = r["episode_id"].replace("|", "__").replace("/", "_")
+        path = os.path.join(a.run_dir, "traces", f"{safe}.jsonl")
+        if not os.path.exists(path):
+            continue
+        g = mix[(r["condition"], r["persona"])]
+        for line in open(path):
+            d = json.loads(line)
+            if d.get("type") != "decision" or d.get("role") != "agent":
+                continue
+            g["decisions"] += 1
+            g[d["action"].split()[0]] += 1
+            g["could_not_start"] += "failed" in d
+    arows = []
+    for (c, p), g in sorted(mix.items()):
+        n = g["decisions"] or 1
+        arows.append({"condition": c, "persona": p, "decisions": g["decisions"],
+                      **{f"{v}%": fmt(100 * g[v] / n, 0) for v in verbs},
+                      "could_not_start%": fmt(100 * g["could_not_start"] / n, 0)})
+    if arows:
+        write_csv(os.path.join(out, "actions.csv"), arows)
+        print("\n## Robot action mix (% of decisions; could_not_start = precondition failed)\n"
+              + md(arows, list(arows[0].keys())))
+
     # ---------------- learning curves (stream) ---------------- #
     if any(phase_of(r["episode_id"]) for r in eps):
         curve = defaultdict(list)

@@ -18,10 +18,10 @@ qwen3.8-27b:
   extra_body:
     top_k: 20
     min_p: 0.0
-    # Thinking off. Qwen3.x templates read enable_thinking; the Qwen3.8 guide mentions
-    # reasoning_effort=none. Unused template variables are ignored, so both are sent;
-    # `python -m research.coop_tom.check` verifies that no reasoning comes back.
-    chat_template_kwargs: {enable_thinking: false, reasoning_effort: none}
+    # Thinking off. Verified on the served Qwen3.8-27B: enable_thinking=false works;
+    # reasoning_effort accepts only xhigh/medium/low ("none" -> HTTP 400), so it is not sent.
+    # `python -m research.coop_tom.check` re-verifies this whenever the server starts.
+    chat_template_kwargs: {enable_thinking: false}
   chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS  # JSON override chosen by the check
 
 # LLM-simulated human (later): a different model family from the agent, on a second server.

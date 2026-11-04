@@ -65,15 +65,15 @@ else
     echo "Using the existing endpoint $ICRL_LLM_BASE_URL; it will not be stopped by this script."
 fi
 
-# Thinking must be off (the experiments assume short JSON replies). Report every candidate,
-# then use the first that passes unless COOP_CHAT_TEMPLATE_KWARGS is set explicitly.
-"$REPO/.venv/bin/python" -m research.coop_tom.check --base-url "$ICRL_LLM_BASE_URL" --model "$ICRL_LLM_MODEL" \
-    | tee "$LOG_DIR/thinking_check.jsonl"
-if [[ -z "${COOP_CHAT_TEMPLATE_KWARGS:-}" ]]; then
-    COOP_CHAT_TEMPLATE_KWARGS="$("$REPO/.venv/bin/python" -m research.coop_tom.check \
-        --base-url "$ICRL_LLM_BASE_URL" --model "$ICRL_LLM_MODEL" --pick)"
-    export COOP_CHAT_TEMPLATE_KWARGS
+# Thinking must be off (the experiments assume short JSON replies). Every candidate is
+# probed once and reported; the first passing one is used unless COOP_CHAT_TEMPLATE_KWARGS is set.
+if ! PICKED="$("$REPO/.venv/bin/python" -m research.coop_tom.check --base-url "$ICRL_LLM_BASE_URL" \
+        --model "$ICRL_LLM_MODEL" --pick --report "$LOG_DIR/thinking_check.jsonl")"; then
+    cat "$LOG_DIR/thinking_check.jsonl" 2>/dev/null || true
+    exit 1
 fi
+cat "$LOG_DIR/thinking_check.jsonl"
+export COOP_CHAT_TEMPLATE_KWARGS="${COOP_CHAT_TEMPLATE_KWARGS:-$PICKED}"
 echo "chat_template_kwargs: $COOP_CHAT_TEMPLATE_KWARGS"
 
 "$REPO/.venv/bin/python" -m research.coop_tom.run "$CONFIG" --out "$OUT_ROOT" "$@" 2>&1 | tee "$LOG_DIR/run.log"

@@ -118,15 +118,16 @@ def test_put_in_pot_replans_when_the_pot_changed():
 
 
 class FakeVLLM(BaseHTTPRequestHandler):
-    """Template that honours enable_thinking only (ignores reasoning_effort)."""
+    """Mirrors the served Qwen3.8 template: enable_thinking switches thinking, and
+    reasoning_effort outside xhigh/medium/low is rejected with HTTP 400."""
     requests = []
 
     def log_message(self, *_):
         pass
 
-    def respond(self, data):
+    def respond(self, data, code=200):
         body = json.dumps(data).encode()
-        self.send_response(200)
+        self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -138,7 +139,11 @@ class FakeVLLM(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeVLLM.requests.append(body)
-        thinking = (body.get("chat_template_kwargs") or {}).get("enable_thinking", True)
+        kwargs = body.get("chat_template_kwargs") or {}
+        effort = kwargs.get("reasoning_effort")
+        if effort is not None and effort not in ("xhigh", "medium", "low") and kwargs.get("enable_thinking", True):
+            return self.respond({"error": {"message": f"Unexpected reasoning effort {effort}."}}, code=400)
+        thinking = kwargs.get("enable_thinking", True)
         msg = {"content": json.dumps({"action": "wait 1"}),
                "reasoning_content": "Let me think about the kitchen..." if thinking else None}
         self.respond({"choices": [{"message": msg, "finish_reason": "stop"}],
@@ -159,13 +164,16 @@ def fake_vllm(monkeypatch):
     thread.join()
 
 
-def test_thinking_check_picks_a_working_switch(fake_vllm, capsys):
+def test_thinking_check_picks_a_working_switch(fake_vllm, capsys, tmp_path):
     from research.coop_tom import check
-    check.main(["--base-url", fake_vllm, "--model", "qwen3.8-27b", "--pick"])
-    assert json.loads(capsys.readouterr().out.strip()) == {"enable_thinking": False, "reasoning_effort": "none"}
-    FakeVLLM.requests = []
-    b = OpenAICompatBackend("x", fake_vllm, "qwen3.8-27b", extra_body={"chat_template_kwargs": {"reasoning_effort": "none"}})
-    assert b.chat([{"role": "user", "content": "hi"}]).thinking  # this template ignores reasoning_effort
+    report = tmp_path / "check.jsonl"
+    check.main(["--base-url", fake_vllm, "--model", "qwen3.8-27b", "--pick", "--report", str(report)])
+    out = capsys.readouterr()
+    assert json.loads(out.out.strip()) == {"enable_thinking": False}  # minimal switch preferred
+    rows = [json.loads(l) for l in report.read_text().splitlines()]
+    assert [r["passes"] for r in rows[:3]] == [True, False, True]
+    assert "HTTP 400" in rows[1]["error"]           # reasoning_effort "none" rejected
+    assert rows[3]["thinking"] and not rows[3]["error"] and "warning" not in out.err  # detector verified
 
 
 def test_cli_end_to_end_with_served_model(fake_vllm, tmp_path, monkeypatch):
