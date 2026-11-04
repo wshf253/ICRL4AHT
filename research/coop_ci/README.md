@@ -89,6 +89,22 @@ counter uses the nearest free counter and says so. Two rates are reported: `fail
 failed after the fixed 2-attempt retry policy: forced wait, timeout, target gone, deadlock). The
 2% flag applies to `infra_after_retry`.
 
+### M2 rerun (persona v2, one-item rule, counter fallback)
+
+| layout | persona | compliance | failed attempts | infra after retry | dishes / 300 steps |
+|---|---|---|---|---|---|
+| shared_1pot | onion_supplier | 0.97 | 2.3% | 0.2% | 6.0 |
+| shared_1pot | tomato_supplier | 0.91 | 1.8% | 0.0% | 6.4 |
+| split_1pot | onion_supplier | 1.00 | 1.5% | 0.0% | 4.8 |
+| split_1pot | tomato_supplier | 0.88 | 1.2% | 0.0% | 5.0 |
+| shared_2pot | loader | 0.81 | 2.4% | 0.2% | 9.2 |
+| shared_2pot | server | 0.88 | 6.8% | 0.2% | 8.4 |
+
+M2 passes: every persona is above 0.70 and infrastructure failures after retry are at most 0.2%.
+The remaining F1 misses are mostly the other ingredient (tomato_supplier fetched an onion 4-6
+times) or a short wait. The LLM human with a scripted neutral ego makes about as many dishes as
+the scripted pair (shared_1pot 6.0-6.4 vs 6.7). Next: Gate 0 with the LLM human as partner.
+
 ## Run on the server
 
 ```bash
