@@ -142,6 +142,12 @@ Gate 0 with the LLM human as the partner (3 sampled rollouts per state):
 COOP_ENTRY=validate lab-run --new --gpus 1 -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/gate0_validation.yaml --partner-backend qwen3.8-27b-partner --families F1 --workers 16
 ```
 
+More throughput: one served model handles both roles, so a second model is never needed.
+On one GPU, raise `MAX_NUM_SEQS` (and `--workers` to match) as far as the KV cache allows (vLLM
+logs the KV-cache size and the maximum concurrency at startup). On several GPUs, `DP_SIZE=<n>`
+serves n copies behind one endpoint (`lab-run --gpus <n>`, `--workers` = n x `MAX_NUM_SEQS`);
+`TP_SIZE` splits one copy over GPUs and only matters for models that do not fit on one card.
+
 Serving variables (`LLM_MODEL_PATH`, `LLM_SERVE_ENV`, `MAX_NUM_SEQS`, ...) and the thinking check
 are unchanged from the previous version: `enable_thinking: false` is verified at server start.
 

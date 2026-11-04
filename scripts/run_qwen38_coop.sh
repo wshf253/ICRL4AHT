@@ -23,8 +23,12 @@ OUT_ROOT="${COOP_OUT:-$REPO/outputs/coop_ci}"
 ENTRY="${COOP_ENTRY:-run}"                         # run | validate
 LOG_DIR="$OUT_ROOT/serve_$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}_$$"
 # Concurrent episodes (--workers) only help if vLLM batches them.
-MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"                  # per replica
 GPU_MEM="${GPU_MEM:-0.85}"
+# Multi-GPU: DP_SIZE copies of the model behind one endpoint (throughput; 27B fits on one card),
+# or TP_SIZE GPUs per copy (only needed for models that do not fit on one card).
+DP_SIZE="${DP_SIZE:-1}"
+TP_SIZE="${TP_SIZE:-1}"
 REASONING_PARSER="${REASONING_PARSER:-qwen3}"      # empty = no parser (thinking then appears inline)
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-1}"     # skip the vision tower of multimodal checkpoints
 ENFORCE_EAGER="${ENFORCE_EAGER:-0}"                 # 1 = slower but avoids CUDA-graph capture issues
@@ -50,8 +54,9 @@ if [[ -z "${ICRL_LLM_BASE_URL:-}" ]]; then
     PORT="$("$REPO/.venv/bin/python" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
     export ICRL_LLM_BASE_URL="http://127.0.0.1:$PORT/v1"
     ARGS=(--served-model-name "$ICRL_LLM_MODEL" --host 127.0.0.1 --port "$PORT"
-          --dtype bfloat16 --tensor-parallel-size 1 --max-model-len 16384
+          --dtype bfloat16 --tensor-parallel-size "$TP_SIZE" --max-model-len 16384
           --max-num-seqs "$MAX_NUM_SEQS" --gpu-memory-utilization "$GPU_MEM" --enable-prefix-caching)
+    [[ "$DP_SIZE" != 1 ]] && ARGS+=(--data-parallel-size "$DP_SIZE")
     [[ -n "$REASONING_PARSER" ]] && ARGS+=(--reasoning-parser "$REASONING_PARSER")
     [[ "$LANGUAGE_MODEL_ONLY" == 1 ]] && ARGS+=(--language-model-only)
     [[ "$ENFORCE_EAGER" == 1 ]] && ARGS+=(--enforce-eager)
