@@ -140,9 +140,13 @@ def run_episode(cfg: dict, cond: dict, persona_id: str, partner_id: str, seed: i
                 stats["fallback"][i] += int(d.fallback)
                 m = parse_macro(d.action, env) or parse_macro("wait 1", env)
                 ex[i].start(m)
+                pst, pc, _ = env.pot_status(env.pots[0])
                 rec = {"type": "decision", "t": env.t, "agent": i, "role": pols[i].role, "action": str(m),
                        "fields": {k: v for k, v in (d.fields or {}).items() if k != "action"}, "raw": d.raw[:1500],
-                       "tokens": d.tokens}
+                       "tokens": d.tokens, "attempt": attempt,
+                       # evaluator-only context for diagnosis (never shown to any agent)
+                       "holding": env.item_text(env.inventory(i)),
+                       "pot": f"{pst} [{', '.join(env.ing_name(c) for c in pc)}]"}
                 if ex[i].ms.status == "failed":
                     stats["macro_fail"][i] += 1
                     last_result[i] = f"'{m}' could not start ({ex[i].ms.reason})"

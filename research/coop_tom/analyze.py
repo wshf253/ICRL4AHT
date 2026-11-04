@@ -182,6 +182,31 @@ def main():
         print("\n## Robot action mix (% of decisions; could_not_start = precondition failed)\n"
               + md(arows, list(arows[0].keys())))
 
+    # ---------------- why robot actions could not start ---------------- #
+    fails = defaultdict(lambda: defaultdict(int))
+    for r in eps:
+        safe = r["episode_id"].replace("|", "__").replace("/", "_")
+        path = os.path.join(a.run_dir, "traces", f"{safe}.jsonl")
+        if not os.path.exists(path):
+            continue
+        for line in open(path):
+            d = json.loads(line)
+            if d.get("type") == "decision" and d.get("role") == "agent" and "failed" in d:
+                key = (d["action"].split()[0] if not d["action"].startswith(("place", "pick", "move"))
+                       else " ".join(d["action"].split()[:2]), d["failed"],
+                       d.get("holding", "?"), d.get("pot", "?").split(" [")[0])
+                fails[(r["condition"], r["persona"])][key] += 1
+    frows = []
+    for (c, p), g in sorted(fails.items()):
+        total = sum(g.values())
+        for (act, why, holding, pot), n in sorted(g.items(), key=lambda kv: -kv[1])[:8]:
+            frows.append({"condition": c, "persona": p, "action": act, "reason": why, "holding": holding,
+                          "pot": pot, "n": n, "share%": fmt(100 * n / total, 0)})
+    if frows:
+        write_csv(os.path.join(out, "start_failures.csv"), frows)
+        print("\n## Robot actions that could not start (top reasons; holding/pot logged from this version on)\n"
+              + md(frows, list(frows[0].keys())))
+
     # ---------------- learning curves (stream) ---------------- #
     if any(phase_of(r["episode_id"]) for r in eps):
         curve = defaultdict(list)
