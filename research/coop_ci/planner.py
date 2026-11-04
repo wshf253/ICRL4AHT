@@ -209,6 +209,7 @@ class MacroState:
     status: str = "running"  # running | done | failed | failed_reported
     code: str = ""           # failure code (taxonomy above)
     reason: str = ""         # human-readable reason (shown to the cook)
+    note: str = ""           # shown with the result when the macro finished differently than named
     target: Optional[tuple] = None
     subgoal: tuple = ("wait", "wait")
     inv0: int = 0
@@ -258,6 +259,8 @@ class Executor:
             self.ms.status, self.ms.code, self.ms.reason = "failed", f"precheck:{code}", err
         tg = self._targets(macro) if macro.kind not in ("wait", "move_to") else []
         self.ms.target = tg[0] if tg else None
+        if macro.kind == "place_counter" and macro.xy is not None and tg and tg[0] != macro.xy:
+            self.ms.note = f"{macro.xy} is not a free counter, so you used the nearest free one at {tg[0]}"
         self.ms.subgoal = subgoal(env, self.i, macro, self.ms.target)
 
     def idle(self) -> bool:
@@ -342,8 +345,10 @@ class Executor:
         elif m.kind == "deliver":
             cand = env.goals
         elif m.kind == "place_counter":
+            # A named cell that is not a free counter falls back to the nearest free one: the
+            # intent ("put this down") is clear, and the result message says where it went.
             free = [c for c in env.counters if env.cell(c)[1] == 0]
-            cand = [c for c in ([m.xy] if m.xy is not None else free) if c in free]
+            cand = [m.xy] if m.xy in free else free
         elif m.kind == "pick_counter":
             cand = [m.xy] if (m.xy in env.counters and env.cell(m.xy)[1] != 0) else []
         else:

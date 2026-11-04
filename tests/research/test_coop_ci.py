@@ -339,3 +339,25 @@ def test_analyze_reports_start_failures_and_compliance_misses(tmp_path):
             f.write(json.dumps(r, default=str) + "\n")
     rows = analyze.compliance_miss_rows(analyze.read_traces(str(tmp_path)))
     assert rows and rows[0]["tendency"] == "onion" and "move" in rows[0]["chosen instead"]  # always 'move to 9 3'
+
+
+def test_place_on_a_named_non_counter_uses_the_nearest_free_counter():
+    env = CoopEnv("shared_1pot").reset(0)
+    env.state = env.state.replace(agents=env.state.agents.replace(inventory=env.state.agents.inventory.at[0].set(4)))
+    env._sync()
+    ex = Executor(env, 0)
+    ex.start(parse_macro("place on counter 1 0", env))  # (1, 0) is an onion pile
+    assert ex.ms.status == "running" and ex.ms.target in env.counters and "nearest free one" in ex.ms.note
+
+
+def test_infra_after_retry_counts_forced_waits():
+    class AlwaysInvalid(MockBackend):
+        def chat(self, messages, max_tokens=None, seed=None, json_mode=None):
+            return LLMResult(json.dumps({"thought": "x", "action": "deliver"}), finish_reason="stop")
+    env = CoopEnv("shared_1pot", max_steps=20).reset(0)
+    epi = Episode(env, 0, 0, ego_policy(PERSONAS, "neutral"), LLMHumanPolicy(AlwaysInvalid(), Usage(), "x"),
+                  PERSONAS["loader"])
+    epi.run(20)
+    m = epi.metrics()
+    assert m["infra_after_retry"]["partner"] == 1.0 and m["infra_after_retry"]["ego"] == 0.0
+    assert m["decision_points"]["partner"] == 20

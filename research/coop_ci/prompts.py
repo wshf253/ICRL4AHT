@@ -24,6 +24,7 @@ You are one of two cooks in a grid-world kitchen (Overcooked). You and your part
 - Both cooks know the open orders. {orders} After a correct delivery that order closes and the next one opens.
 - A soup needs exactly 3 ingredients that match an open order (a multiset; the order of adding does not matter).
 - A pot starts cooking by itself once it holds 3 ingredients; cooking takes 20 steps. Ingredients cannot be taken out of a pot.
+- You hold at most one item. To take something else, first get rid of what you hold: put it into a pot, deliver it, or place it on a free counter.
 - With an empty plate in hand, take a cooked soup from the pot ("plate soup"), then deliver it at the serving window X.
 - Correct delivery: +20. Wrong soup: -20.
 - {view}

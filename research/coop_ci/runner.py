@@ -91,7 +91,7 @@ def _zero_counts() -> dict:
     return {"decisions": Counter(), "parse_fail": Counter(), "fallback": Counter(), "fail": {0: Counter(), 1: Counter()},
             "wait_steps": Counter(), "ego_idle_useful": 0, "blocking_steps": 0, "dup_subtask_steps": 0,
             "dup_ingredient": 0, "surplus_plate": 0, "wrong_soup_add": Counter(), "comp_opp": 0, "comp_match": 0,
-            "steps": 0}
+            "steps": 0, "decision_points": Counter(), "unrecovered": Counter()}
 
 
 class Episode:
@@ -190,6 +190,9 @@ class Episode:
             ms.status = "failed_reported"
 
     def decide_idle(self):
+        first_idle = [i for i in (0, 1) if self.ex[i].idle()]
+        for i in first_idle:
+            self.c["decision_points"][i] += 1
         for attempt in range(2):
             idle = [i for i in (0, 1) if self.ex[i].idle()]
             if not idle:
@@ -209,6 +212,8 @@ class Episode:
                 self._commit(i, ds[i], attempt)
         for i in (0, 1):  # anything still idle after 2 attempts just waits
             if self.ex[i].idle():
+                if i in first_idle:
+                    self.c["unrecovered"][i] += 1
                 self.ex[i].start(parse_macro("wait 1", self.env))
 
     def step(self):
@@ -250,7 +255,7 @@ class Episode:
         for i in (0, 1):
             ms = self.ex[i].ms
             if ms and ms.status == "done":
-                self.last_result[i] = f"'{ms.macro}' finished"
+                self.last_result[i] = f"'{ms.macro}' finished" + (f" ({ms.note})" if ms.note else "")
             elif ms and ms.status == "failed":
                 c["fail"][i][ms.code] += 1
                 self.last_result[i] = f"'{ms.macro}' failed ({ms.reason})"
@@ -299,6 +304,11 @@ class Episode:
         infra = {r: sum(v for k, v in fails[r].items() if k not in NOT_INFRA) + c["parse_fail"][i]
                  for r, i in (("ego", ego), ("partner", par))}
         dec = {"ego": c["decisions"][ego], "partner": c["decisions"][par]}
+        # After the retry policy (2 attempts per step): decision points that ended in a forced wait,
+        # plus failures of macros that did start (timeout, target gone, deadlock).
+        pts = {"ego": c["decision_points"][ego], "partner": c["decision_points"][par]}
+        after = {r: c["unrecovered"][i] + sum(fails[r].get(k, 0) for k in ("timeout", "target_gone", "deadlock"))
+                 for r, i in (("ego", ego), ("partner", par))}
         return {
             "return": env.score - self.score0, "n_correct": len(good), "n_wrong": len(dels) - len(good),
             "first_correct_t": (good[0].t - self.t0) if good else None, "steps": c["steps"],
@@ -314,6 +324,8 @@ class Episode:
             "parse_fail": {"ego": c["parse_fail"][ego], "partner": c["parse_fail"][par]},
             "fallback": {"ego": c["fallback"][ego], "partner": c["fallback"][par]},
             "infra_rate": {r: round(infra[r] / dec[r], 4) if dec[r] else 0.0 for r in dec},
+            "decision_points": pts,
+            "infra_after_retry": {r: round(after[r] / pts[r], 4) if pts[r] else 0.0 for r in pts},
             "deadlocks": fails["ego"].get("deadlock", 0) + fails["partner"].get("deadlock", 0),
         }
 
@@ -428,5 +440,6 @@ def _report(r):
     comp = r["compliance"]["rate"]
     print(f"{r['episode_id']}: return {r['return']:+.0f} (correct {r['n_correct']}, wrong {r['n_wrong']}), "
           f"compliance {'-' if comp is None else f'{comp:.2f}'}, infra ego/partner "
-          f"{r['infra_rate']['ego']:.2f}/{r['infra_rate']['partner']:.2f}, "
+          f"{r['infra_rate']['ego']:.2f}/{r['infra_rate']['partner']:.2f} "
+          f"(after retry {r['infra_after_retry']['ego']:.2f}/{r['infra_after_retry']['partner']:.2f}), "
           f"calls {r['usage']['ego']['calls']}/{r['usage']['partner']['calls']}, {r['wall_s']}s", flush=True)

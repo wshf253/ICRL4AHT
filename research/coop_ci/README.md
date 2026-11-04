@@ -80,6 +80,15 @@ contents still fit (or "wrong soup"); the LLM human may write up to 160 tokens (
 cut off at 120). `analyze` now also lists the actions that could not start and, per persona,
 what the partner chose when its tendency applied but it did not follow it.
 
+Why partner actions could not start (same run): mostly holding the wrong item, i.e. an empty plate
+while trying to fetch an ingredient (79), plate a pot that was still filling (31) or put the plate
+down (24), and an ingredient while trying to fetch a plate (38). Changes: the rules now say a cook
+holds one item and must put it down first; `place on counter x y` on a cell that is not a free
+counter uses the nearest free counter and says so. Two rates are reported: `failed_attempts`
+(every reply whose action failed, retries included) and `infra_after_retry` (decision points still
+failed after the fixed 2-attempt retry policy: forced wait, timeout, target gone, deadlock). The
+2% flag applies to `infra_after_retry`.
+
 ## Run on the server
 
 ```bash

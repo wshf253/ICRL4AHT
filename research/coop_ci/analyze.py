@@ -51,13 +51,21 @@ def summary_rows(eps):
         dec_p = sum(r["decisions"]["partner"] for r in rs)
         inf_e = sum(r["infra_rate"]["ego"] * r["decisions"]["ego"] for r in rs) / max(1, dec_e)
         inf_p = sum(r["infra_rate"]["partner"] * r["decisions"]["partner"] for r in rs) / max(1, dec_p)
-        flag = " !" if max(inf_e, inf_p) > INFRA_FLAG else ""
+
+        def after(role):  # older runs have no after-retry numbers
+            pts = sum(r.get("decision_points", {}).get(role, 0) for r in rs)
+            n = sum(r.get("infra_after_retry", {}).get(role, 0) * r.get("decision_points", {}).get(role, 0) for r in rs)
+            return n / pts if pts else None
+        ae, ap = after("ego"), after("partner")
+        worst = max(x for x in (ae, ap, 0.0) if x is not None) if ae is not None else max(inf_e, inf_p)
+        flag = " !" if worst > INFRA_FLAG else ""
         rows.append({
             "condition": c, "layout": lay, "persona": p, "n": len(rs),
             "return": f"{fmt(mean(ret))} [{fmt(lo)}, {fmt(hi)}]",
             "correct": fmt(mean(r["n_correct"] for r in rs), 2), "wrong": fmt(mean(r["n_wrong"] for r in rs), 2),
             "compliance": fmt(mat / opp if opp else None, 3),
-            "infra_ego/partner": f"{fmt(inf_e, 3)}/{fmt(inf_p, 3)}{flag}",
+            "failed_attempts_ego/partner": f"{fmt(inf_e, 3)}/{fmt(inf_p, 3)}",
+            "infra_after_retry_ego/partner": f"{fmt(ae, 3)}/{fmt(ap, 3)}{flag}",
             "ego_idle_useful": fmt(mean(r["ego_idle_while_useful"] for r in rs)),
             "ready_idle": fmt(mean(r["ready_idle_steps"] for r in rs)),
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
@@ -118,15 +126,18 @@ def read_traces(run_dir):
 
 def start_failure_rows(traces, top=12):
     """Why chosen actions could not start: role x action verb x failure code x what was held."""
-    cnt, tot = Counter(), Counter()
+    cnt, tot, example = Counter(), Counter(), {}
     for _, decs in traces:
         for r in decs:
             tot[r["role"]] += 1
             if r.get("failed"):
                 verb = " ".join(w for w in r["action"].split() if not w.isdigit())
-                cnt[(r["role"], verb, r["failed"]["code"], r.get("holding", ""))] += 1
+                k = (r["role"], verb, r["failed"]["code"], r.get("holding", ""))
+                cnt[k] += 1
+                example.setdefault(k, f"{r['action']}: {r['failed']['reason']}"[:140])
     return [{"role": k[0], "action": k[1], "code": k[2], "holding": k[3], "n": v,
-             "share_of_role_decisions": fmt(v / max(1, tot[k[0]]), 3)} for k, v in cnt.most_common(top)]
+             "share_of_role_decisions": fmt(v / max(1, tot[k[0]]), 3), "example": example[k]}
+            for k, v in cnt.most_common(top)]
 
 
 def compliance_miss_rows(traces):
@@ -162,7 +173,10 @@ def main(argv=None):
     write_csv(os.path.join(out, "summary.csv"), summ)
     print("## Summary\n")
     print(md(summ, list(summ[0].keys())))
-    print(f"\n`!` = infrastructure failures above {INFRA_FLAG:.0%} of decisions (flagged, not dropped).\n")
+    print(f"\n`failed_attempts` = share of replies whose action could not start or failed (each retry counts). "
+          f"`infra_after_retry` = share of decision points still failed after the 2-attempt retry policy "
+          f"(forced wait, timeout, target gone, deadlock). `!` = above {INFRA_FLAG:.0%} (flagged, not dropped; "
+          f"runs without after-retry numbers are flagged on failed attempts).\n")
     if a.ref:
         pr = paired_rows(eps, a.ref)
         write_csv(os.path.join(out, "paired.csv"), pr)
