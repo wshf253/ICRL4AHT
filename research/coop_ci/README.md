@@ -63,6 +63,23 @@ fallback (plate when nothing needs loading) makes two loaders almost as good as 
 Scripted-pair sanity: 5–10 dishes per 300 steps, 0 wrong, 0 deadlocks, infrastructure failures
 ≤ 0.1% of decisions, twin compliance 100% on every layout × persona.
 
+## M2: LLM-human compliance (Qwen3.8-27B, first run)
+
+| layout | persona | compliance | partner actions that could not start |
+|---|---|---|---|
+| shared_2pot | loader | 0.80 | 5% |
+| shared_2pot | server | 0.96 | 14% |
+| split_2pot | onion_supplier | **0.50** | 9% |
+| split_2pot | tomato_supplier | **0.37** | 9% |
+
+F1 was below the 0.70 bar, so its wording was revised (v2, logged under `revisions` in
+`personas.yaml`): an explicit habit ("you are the one who fetches onions ... even when a tomato is
+needed too") and "open orders" instead of "the current order". The F1 check now runs on the
+layouts that passed Gate 0. Changes for every cook: each pot line says which open orders its
+contents still fit (or "wrong soup"); the LLM human may write up to 160 tokens (3 replies were
+cut off at 120). `analyze` now also lists the actions that could not start and, per persona,
+what the partner chose when its tendency applied but it did not follow it.
+
 ## Run on the server
 
 ```bash

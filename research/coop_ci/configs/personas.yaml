@@ -6,14 +6,21 @@
 #   scripted     the rule-based twin: job priorities when its hands are empty (see scripted.py)
 #   complement   the persona whose jobs are the complementary ego allocation to this one
 #   opportunity  predicate for the compliance audit: decision points where the tendency applies
+#   revisions    earlier texts and the compliance that led to the change (M2 revision log)
 
 onion_supplier:
   family: F1
   label: "Usually fetches onions for the pot; switches to whatever is still missing once no more onions are needed."
   text: >-
-    You usually fetch onions for the pot. Count what the current order still needs, given what is already in
-    the pot and what your teammate is carrying. If the order needs no more onions, fetch what is still
-    missing. Plate and serve when a soup is ready and you are free.
+    Your habit: you are the one who fetches onions. Whenever your hands are empty, check what the pots still
+    need for the open orders, counting what is already in them and what your teammate is carrying. If an
+    onion is still needed, fetch an onion, even when a tomato is needed too. Only when no more onions
+    are needed, fetch whatever is still missing. If a soup is ready and nobody has a plate, plate it and serve it.
+  revisions:   # M2 revision log (LLM human = Qwen3.8-27B, 10 episodes against a scripted neutral ego)
+    - version: 1
+      text: "You usually fetch onions for the pot. Count what the current order still needs, given what is already in the pot and what your teammate is carrying. If the order needs no more onions, fetch what is still missing. Plate and serve when a soup is ready and you are free."
+      compliance: {split_2pot: 0.5}
+      reason: "Below 0.70. 'Usually' read as optional; 'the current order' did not fit a layout with two open orders."
   scripted: {jobs: [plate_ready, "fetch:onion", fetch_missing, plate_cooking], preferred: onion}
   complement: tomato_supplier
   opportunity: needs_preferred
@@ -22,9 +29,15 @@ tomato_supplier:
   family: F1
   label: "Usually fetches tomatoes for the pot; switches to whatever is still missing once no more tomatoes are needed."
   text: >-
-    You usually fetch tomatoes for the pot. Count what the current order still needs, given what is already in
-    the pot and what your teammate is carrying. If the order needs no more tomatoes, fetch what is still
-    missing. Plate and serve when a soup is ready and you are free.
+    Your habit: you are the one who fetches tomatoes. Whenever your hands are empty, check what the pots still
+    need for the open orders, counting what is already in them and what your teammate is carrying. If a
+    tomato is still needed, fetch a tomato, even when an onion is needed too. Only when no more tomatoes
+    are needed, fetch whatever is still missing. If a soup is ready and nobody has a plate, plate it and serve it.
+  revisions:   # M2 revision log (LLM human = Qwen3.8-27B, 10 episodes against a scripted neutral ego)
+    - version: 1
+      text: "You usually fetch tomatoes for the pot. Count what the current order still needs, given what is already in the pot and what your teammate is carrying. If the order needs no more tomatoes, fetch what is still missing. Plate and serve when a soup is ready and you are free."
+      compliance: {split_2pot: 0.372}
+      reason: "Below 0.70. 'Usually' read as optional; 'the current order' did not fit a layout with two open orders."
   scripted: {jobs: [plate_ready, "fetch:tomato", fetch_missing, plate_cooking], preferred: tomato}
   complement: onion_supplier
   opportunity: needs_preferred

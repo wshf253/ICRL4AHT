@@ -288,16 +288,16 @@ def test_cli_compliance_run_end_to_end(fake_vllm, tmp_path, monkeypatch):
     from research.coop_ci import analyze, run
     monkeypatch.setenv("COOP_CHAT_TEMPLATE_KWARGS", '{"enable_thinking": false}')
     out = run.main([os.path.join(CONFIG_DIR, "m2_compliance.yaml"), "--episodes", "1", "--max-steps", "30",
-                    "--personas", "onion_supplier", "--workers", "1", "--out", str(tmp_path)])
+                    "--layouts", "shared_1pot", "--personas", "onion_supplier", "--workers", "1", "--out", str(tmp_path)])
     rec = json.loads(open(os.path.join(out, "episodes.jsonl")).readline())
     assert rec["usage"]["partner"]["calls"] > 0 and rec["usage"]["ego"]["calls"] == 0
     assert rec["usage"]["partner"]["thinking"] == 0 and rec["compliance"]["opportunities"] > 0
     body = FakeVLLM.requests[-1]
-    assert body["chat_template_kwargs"] == {"enable_thinking": False} and body["max_tokens"] == 120
+    assert body["chat_template_kwargs"] == {"enable_thinking": False} and body["max_tokens"] == 160
     assert "YOUR WORKING STYLE" in body["messages"][0]["content"]
     trace = [json.loads(l) for l in open(os.path.join(out, "traces", os.listdir(os.path.join(out, "traces"))[0]))]
     assert any(r.get("private", {}).get("thought") == "fetching" for r in trace)
-    assert os.path.exists(os.path.join(out, "prompts", "human__split_2pot__onion_supplier.txt"))
+    assert os.path.exists(os.path.join(out, "prompts", "human__shared_1pot__onion_supplier.txt"))
     analyze.main([out])
     assert os.path.exists(os.path.join(out, "analysis", "summary.csv"))
 
@@ -313,3 +313,29 @@ def test_valid_actions_name_pots_on_two_pot_layouts():
     env = CoopEnv("split_2pot").reset(0)
     va = valid_actions(env, 0)
     assert "fetch onion" in va and "fetch plate" in va and not any(a.startswith("put in") for a in va)
+
+
+def test_pots_say_which_open_orders_they_fit():
+    env = CoopEnv("split_2pot").reset(3)  # orders: onion+tomato+tomato, onion+onion+tomato
+    p0 = env.pots[0]
+    env.state = env.state.replace(grid=env.state.grid.at[p0[1], p0[0], 1].set(16 + 16))  # two tomatoes
+    env._sync()
+    assert "fits order 1" in env.observation_text(0) and "fits order 1 or 2" not in env.observation_text(0)
+    env.state = env.state.replace(grid=env.state.grid.at[p0[1], p0[0], 1].set(16 + 16 + 16))  # three tomatoes
+    env._sync()
+    assert "fits no open order (wrong soup)" in env.observation_text(1)
+
+
+def test_analyze_reports_start_failures_and_compliance_misses(tmp_path):
+    from research.coop_ci import analyze
+    be = ScriptedLLM()
+    env = CoopEnv("shared_1pot", max_steps=60).reset(1)
+    epi = Episode(env, 1, 0, ego_policy(PERSONAS, "neutral"), LLMHumanPolicy(be, Usage(), PERSONAS["onion_supplier"]["text"]),
+                  PERSONAS["onion_supplier"])
+    epi.run(60)
+    os.makedirs(tmp_path / "traces")
+    with open(tmp_path / "traces" / "c__shared_1pot__onion_supplier__0.jsonl", "w") as f:
+        for r in epi.trace:
+            f.write(json.dumps(r, default=str) + "\n")
+    rows = analyze.compliance_miss_rows(analyze.read_traces(str(tmp_path)))
+    assert rows and rows[0]["tendency"] == "onion" and "move" in rows[0]["chosen instead"]  # always 'move to 9 3'

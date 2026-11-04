@@ -6,8 +6,11 @@ name: m2_compliance
 seed: 0
 env: {max_steps: 300}
 backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+# F1 runs on the layouts that passed Gate 0 (one open order); F2 failed Gate 0 and stays only as a
+# reference for the LLM human's competence on two pots.
 cells:
-  - {layout: split_2pot, personas: [onion_supplier, tomato_supplier]}
+  - {layout: shared_1pot, personas: [onion_supplier, tomato_supplier]}
+  - {layout: split_1pot, personas: [onion_supplier, tomato_supplier]}
   - {layout: shared_2pot, personas: [loader, server]}
 conditions:
   - {name: neutral_ego, ego: neutral}

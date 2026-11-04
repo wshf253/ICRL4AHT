@@ -12,7 +12,7 @@ from .planner import parse_macro, valid_actions
 from .policy import Decision, Policy, stable_seed
 from .prompts import OUTPUT_OF, decision_user_prompt, ego_system_prompt, human_system_prompt
 
-MAX_TOKENS = {"A0": 96, "human": 120}
+MAX_TOKENS = {"A0": 96, "human": 160}
 
 
 class _LLMPolicyBase(Policy):

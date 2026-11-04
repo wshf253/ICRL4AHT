@@ -525,7 +525,7 @@ class CoopEnv:
         for p in self.pots:
             if self.in_view(i, p):
                 status, contents, extra = self.pot_status(p)
-                lines.append(f"{self.pot_name[p]} {xy(p)}: {self.pot_text(status, contents, extra)}.")
+                lines.append(f"{self.pot_name[p]} {xy(p)}: {self.pot_text(status, contents, extra)}{self.fit_text(contents)}.")
             else:
                 lines.append(f"{self.pot_name[p]} {xy(p)}: not in view.")
         items = [f"{xy(c)}: {self.item_text(o)}" for c, o in self.counter_items().items() if self.in_view(i, c)]
@@ -535,6 +535,18 @@ class CoopEnv:
             lines.append("Recent events (most recent last):")
             lines += ["  " + self.event_text(e, i) for e in ev]
         return "\n".join(lines)
+
+    def fit_text(self, contents: list[int]) -> str:
+        """Which open orders a pot's contents still fit (derived from common knowledge; the same
+        for both cooks and every condition)."""
+        if not contents:
+            return ""
+        fits = [k + 1 for k, o in enumerate(self.orders) if multiset_contains(o, contents)]
+        if not fits:
+            return " - fits no open order (wrong soup)"
+        if len(self.orders) == 1:
+            return " - fits the order"
+        return f" - fits order {' or '.join(map(str, fits))}"
 
     def pot_text(self, status, contents, extra):
         names = ", ".join(self.ing_name(c) for c in contents) or "empty"

@@ -162,11 +162,13 @@ class Episode:
         c["parse_fail"][i] += int(not d.parse_ok)
         c["fallback"][i] += int(d.fallback)
         m = parse_macro(d.action, env) or parse_macro("wait 1", env)
+        allowed, ok = None, None
         if i == self.partner:
             allowed = opportunity(env, i, self.persona)
             if allowed is not None:
+                ok = complies(env, m, allowed)
                 c["comp_opp"] += 1
-                c["comp_match"] += int(complies(env, m, allowed))
+                c["comp_match"] += int(ok)
         self.ex[i].start(m)
         ms = self.ex[i].ms
         if self.record_trace:
@@ -175,6 +177,8 @@ class Episode:
                    "target": ms.target, "fields": {k: v for k, v in (d.fields or {}).items() if k != "action"},
                    "raw": d.raw[:1500], "tokens": d.tokens, "attempt": attempt, "parse_ok": d.parse_ok,
                    "holding": env.item_text(env.inventory(i))}
+            if allowed is not None:  # evaluator-only compliance audit
+                rec["opportunity"] = {"tendency": sorted(allowed), "complied": ok}
             if d.private:
                 rec["private"] = d.private  # trace only; never shown to the other cook
             if ms.status == "failed":

@@ -8,6 +8,8 @@ Prints markdown tables and writes <run_dir>/analysis/*.csv:
               dependency delay, coordination waste, cost
   paired      per condition vs --ref on matched episodes (same layout, persona, episode index)
   failures    failure codes per role (pot_changed / taken_by_partner are not infrastructure)
+  start_failures     (from traces) chosen actions that could not start: action, code, what was held
+  compliance_misses  (from traces) what the partner chose when its tendency applied but it did not follow it
 """
 import argparse
 import csv
@@ -100,6 +102,54 @@ def failure_rows(eps):
             for (c, role), cnt in sorted(g.items())]
 
 
+def read_traces(run_dir):
+    """(episode record, decision records) per episode, from traces/<episode_id>.jsonl."""
+    d = os.path.join(run_dir, "traces")
+    out = []
+    for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        parts = fn[:-len(".jsonl")].split("__")
+        if len(parts) != 4:
+            continue
+        recs = [json.loads(l) for l in open(os.path.join(d, fn)) if l.strip()]
+        out.append((dict(zip(("condition", "layout", "persona", "ep"), parts)),
+                    [r for r in recs if r.get("type") == "decision"]))
+    return out
+
+
+def start_failure_rows(traces, top=12):
+    """Why chosen actions could not start: role x action verb x failure code x what was held."""
+    cnt, tot = Counter(), Counter()
+    for _, decs in traces:
+        for r in decs:
+            tot[r["role"]] += 1
+            if r.get("failed"):
+                verb = " ".join(w for w in r["action"].split() if not w.isdigit())
+                cnt[(r["role"], verb, r["failed"]["code"], r.get("holding", ""))] += 1
+    return [{"role": k[0], "action": k[1], "code": k[2], "holding": k[3], "n": v,
+             "share_of_role_decisions": fmt(v / max(1, tot[k[0]]), 3)} for k, v in cnt.most_common(top)]
+
+
+def compliance_miss_rows(traces):
+    """At decisions where the persona's tendency applied: what the partner chose instead."""
+    g = defaultdict(Counter)
+    for meta, decs in traces:
+        for r in decs:
+            o = r.get("opportunity")
+            if o is not None:
+                key = (meta["layout"], meta["persona"], "/".join(o["tendency"]) if len(o["tendency"]) < 3 else "any ingredient")
+                g[key]["_n"] += 1
+                if not o["complied"]:
+                    g[key][r["subgoal"][0] if r.get("subgoal") else r["action"]] += 1
+    rows = []
+    for (lay, p, tend), c in sorted(g.items()):
+        n = c.pop("_n")
+        miss = sum(c.values())
+        rows.append({"layout": lay, "persona": p, "tendency": tend, "opportunities": n,
+                     "compliance": fmt(1 - miss / n, 3),
+                     "chosen instead": ", ".join(f"{k} {v}" for k, v in c.most_common(6)) or "-"})
+    return rows
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -123,6 +173,17 @@ def main(argv=None):
     write_csv(os.path.join(out, "failures.csv"), fr)
     print("## Failure codes\n")
     print(md(fr, ["condition", "role", "codes"]))
+    traces = read_traces(a.run_dir)
+    sf = start_failure_rows(traces)
+    write_csv(os.path.join(out, "start_failures.csv"), sf)
+    if sf:
+        print("\n## Actions that could not start (top)\n")
+        print(md(sf, list(sf[0].keys())))
+    cm = compliance_miss_rows(traces)
+    write_csv(os.path.join(out, "compliance_misses.csv"), cm)
+    if cm:
+        print("\n## Persona compliance: what the partner chose when its tendency applied but it did not follow it\n")
+        print(md(cm, list(cm[0].keys())))
     return summ
 
 
