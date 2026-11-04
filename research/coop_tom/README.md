@@ -7,7 +7,7 @@ act on it? This is the first runnable version of the paper's experiments, ported
 | Step | Config | What it answers |
 |---|---|---|
 | 1 | serving + `check` | Is Qwen3.8-27B's thinking really off? Does JSON come back? |
-| 2 | `exp0_smoke` | Task competence without ToM (robot sees the order), parse failures, calls and wall time per episode |
+| 2 | `exp0_smoke` | Pipeline check: robot sees the order (partner type still hidden); parse failures, failed starts, calls and wall time per episode |
 | 3 | `exp1_diagnosis` | Q0: order hidden/given × persona hidden/given; probe accuracy, inference vs utilization error, failures by phase |
 | 4 | `exp2_tom_rationale` | T1–T4: direct / cot / tom_free / tom_slots / tom_2nd (supported; run after Exp 1) |
 

@@ -230,6 +230,10 @@ def test_failure_reasons_say_what_is_wrong():
     env._sync()
     ex.start(parse_macro("place on counter", env))
     assert ex.ms.status == "failed" and "no free counter" in ex.ms.reason
+    env.state = env.state.replace(grid=env.state.grid.at[2, 0, 1].set(0))  # free counter (0, 2) again
+    env._sync()
+    ex.start(parse_macro("place on counter 1 0", env))
+    assert ex.ms.status == "failed" and "free counters you can reach: 0 2" in ex.ms.reason
 
 
 def test_exp0_references_do_not_get_stuck_on_full_counters(tmp_path):

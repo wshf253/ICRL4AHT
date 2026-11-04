@@ -211,11 +211,15 @@ class Executor:
         if m.kind == "put_in_pot":
             return f"no pot can take an ingredient now ({pots})"
         if m.kind == "place_counter":
+            free = [c for c in env.counters if env.cell(c)[1] == 0]
+            reach = reachable_targets(env, self.i, free)
+            options = (f"free counters you can reach: {', '.join(f'{c[0]} {c[1]}' for c in reach)}"
+                       if reach else "every counter you can reach already holds an item")
             if m.xy is not None and m.xy not in env.counters:
-                return f"{m.xy} is not a counter"
+                return f"{m.xy} is not a counter ({options})"
             if m.xy is not None:
-                return f"counter {m.xy} is occupied or out of reach"
-            return "no free counter you can reach (every reachable counter already holds an item)"
+                return f"counter {m.xy} is occupied or out of reach ({options})"
+            return f"no free counter you can reach ({options})"
         if m.kind == "pick_counter":
             return f"there is nothing you can pick up on counter {m.xy}"
         if m.kind in ("fetch", "fetch_plate"):

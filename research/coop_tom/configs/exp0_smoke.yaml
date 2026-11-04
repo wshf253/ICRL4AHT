@@ -1,7 +1,9 @@
-# Exp 0 - pipeline smoke test + task competence without ToM. Run this first.
-# cramped_room_up: the robot (agent 1) starts next to the order display, so no inference is needed.
-# Failures here are execution/format failures, not coordination failures. Read off: parse
-# failures, thinking leaks, calls and wall time per episode (to calibrate max_steps / episodes).
+# Exp 0 - pipeline smoke test. Run this first.
+# cramped_room_up: the robot (agent 1) starts next to the order display, so the ORDER needs no
+# inference. The partner's working style is still hidden: losses against `starter` (who adds
+# one ingredient and waits) can be partner-modelling failures, not only execution failures.
+# Read off: parse failures, thinking leaks, failed starts, calls and wall time per episode
+# (to calibrate max_steps / episodes).
 name: exp0_smoke
 base: _base_demo_cook.yaml
 mode: grid
