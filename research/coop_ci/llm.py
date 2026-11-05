@@ -171,6 +171,14 @@ class MockBackend(Backend):
             if act is None:
                 fetches = [a for a in valid if a.startswith("fetch")]
                 act = rng.choice(fetches + ["wait 2"]) if fetches else "wait 2"
+            if '"notes"' in text and "YOUR CURRENT NOTES" in last:   # memory update (Exp B)
+                return LLMResult(json.dumps({"notes": "mock lesson: plate soups as soon as they are ready"}),
+                                 finish_reason="stop")
+            if '"tendencies"' in text and "YOUR CURRENT NOTES" in last:
+                return LLMResult(json.dumps({"tendencies": [{"claim": "mock claim", "conditions_of_applicability": "always",
+                                                             "evidence_for": ["E1"], "evidence_against": [],
+                                                             "confidence": 0.5}], "open_questions": []}),
+                                 finish_reason="stop")
             out = {}
             for k in ("thought", "plan", "partner_current_subgoal", "evidence", "partner_tendency",
                       "my_complementary_action_reason"):

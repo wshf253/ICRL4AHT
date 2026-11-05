@@ -52,7 +52,7 @@ class LLMEgoPolicy(_LLMPolicyBase):
     role = "ego"
 
     def __init__(self, backend, usage, condition="A0", words=80, partner_id="P-0000", profile_label="",
-                 n_events=10):
+                 n_events=10, memory_text=None):
         super().__init__(backend, usage)
         if condition not in OUTPUT_OF:
             raise ValueError(f"unknown condition {condition}")
@@ -61,6 +61,7 @@ class LLMEgoPolicy(_LLMPolicyBase):
         self.condition, self.words, self.partner_id = condition, words, partner_id
         self.profile_label = profile_label if condition in ("A2", "A4") else ""
         self.n_events = n_events
+        self.memory_text = memory_text  # Exp B/C: fixed for the whole episode (updated between episodes)
         self.name = condition
 
     def max_tokens(self) -> int:
@@ -68,7 +69,8 @@ class LLMEgoPolicy(_LLMPolicyBase):
         return MAX_TOKENS["A0"] if OUTPUT_OF[self.condition] == "A0" else int(self.words * 4) + 160
 
     def system_prompt(self, env) -> str:
-        return ego_system_prompt(env, self.condition, self.words, self.partner_id, self.profile_label)
+        return ego_system_prompt(env, self.condition, self.words, self.partner_id, self.profile_label,
+                                 self.memory_text)
 
     def user_prompt(self, env, i, last_result, context=None) -> str:
         injected = ""

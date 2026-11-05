@@ -150,17 +150,24 @@ def failure_rows(eps):
             for (c, role), cnt in sorted(g.items())]
 
 
-def read_traces(run_dir):
-    """(episode record, decision records) per episode, from traces/<episode_id>.jsonl."""
+def read_traces(run_dir, eps=None):
+    """(episode meta, decision records) per episode, from traces/<episode_id>.jsonl. With `eps` the
+    meta comes from the episode records (stream ids do not encode layout and persona)."""
     d = os.path.join(run_dir, "traces")
+    meta = {r["episode_id"].replace("|", "__"): {"condition": r["condition"], "layout": r["layout"],
+                                                 "persona": r["persona"]} for r in eps or []}
     out = []
     for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        parts = fn[:-len(".jsonl")].split("__")
-        if len(parts) != 4:
+        key = fn[:-len(".jsonl")]
+        parts = key.split("__")
+        if key in meta:
+            m = meta[key]
+        elif len(parts) == 4:
+            m = dict(zip(("condition", "layout", "persona", "ep"), parts))
+        else:
             continue
         recs = [json.loads(l) for l in open(os.path.join(d, fn)) if l.strip()]
-        out.append((dict(zip(("condition", "layout", "persona", "ep"), parts)),
-                    [r for r in recs if r.get("type") == "decision"]))
+        out.append((m, [r for r in recs if r.get("type") == "decision"]))
     return out
 
 
@@ -201,6 +208,52 @@ def compliance_miss_rows(traces):
     return rows
 
 
+PHASE_ORDER = ("A", "A_heldout", "B", "A_return")
+READOUT = {"A": "familiar partner (learning)", "A_heldout": "transfer: held-out task, frozen notes",
+           "B": "unfamiliar partner", "A_return": "retention: partner A again, frozen notes"}
+
+
+def stream_rows(eps, ref):
+    """Stream runs (Exp B/C): resampling unit = stream (episodes within a stream are not independent)."""
+    per = defaultdict(lambda: defaultdict(list))  # (cond, phase) -> stream -> returns
+    for r in eps:
+        per[(r["condition"], r["phase"])][r["stream"]].append(r["return"])
+    conds = sorted({r["condition"] for r in eps})
+    phases = [p for p in PHASE_ORDER if any(r["phase"] == p for r in eps)] + sorted(
+        {r["phase"] for r in eps} - set(PHASE_ORDER))
+    rows, prow = [], []
+    for c in conds:
+        row = {"condition": c, "memory": next(r["memory_kind"] for r in eps if r["condition"] == c)}
+        for ph in phases:
+            m = {s: mean(v) for s, v in per[(c, ph)].items()}
+            lo, hi = boot_ci(list(m.values()))
+            row[ph] = f"{fmt(mean(m.values()) if m else None)} [{fmt(lo)}, {fmt(hi)}]"
+            if ref and c != ref:
+                b = {s: mean(v) for s, v in per[(ref, ph)].items()}
+                d, (dl, dh), n = paired_diff(m, b)
+                prow.append({"condition": c, "vs": ref, "phase": ph, "readout": READOUT.get(ph, ""), "streams": n,
+                             "diff": f"{fmt(d)} [{fmt(dl)}, {fmt(dh)}]"})
+        rows.append(row)
+    curve = []
+    for c in conds:
+        ks = sorted({r["k"] for r in eps if r["condition"] == c})
+        row = {"condition": c}
+        for k in ks:
+            v = [r["return"] for r in eps if r["condition"] == c and r["k"] == k]
+            ph = next(r["phase"] for r in eps if r["k"] == k)
+            row[f"E{k + 1} {ph}"] = fmt(mean(v), 0)
+        curve.append(row)
+    mem = []
+    for c in conds:
+        rs = [r for r in eps if r["condition"] == c]
+        st = Counter(r["memory_update"]["status"].split(" ")[0] for r in rs)
+        mem.append({"condition": c, "chars_in (mean, by phase)": ", ".join(
+            f"{ph} {fmt(mean(r['memory_in']['chars'] for r in rs if r['phase'] == ph), 0)}" for ph in phases),
+            "updates": ", ".join(f"{k} {v}" for k, v in st.most_common()),
+            "update_tokens_out": fmt(mean_known(r["memory_update"].get("update_tokens", [None, None])[1] for r in rs), 0)})
+    return rows, prow, curve, mem
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -210,6 +263,21 @@ def main(argv=None):
     fill_from_traces(eps, a.run_dir)
     out = os.path.join(a.run_dir, "analysis")
     os.makedirs(out, exist_ok=True)
+    if any(r.get("mode") == "stream" for r in eps):
+        ref = a.ref or "B0"
+        rows, prow, curve, mem = stream_rows(eps, ref)
+        for name, data in (("stream_phases", rows), ("stream_paired", prow), ("stream_curve", curve), ("memory", mem)):
+            write_csv(os.path.join(out, f"{name}.csv"), data)
+        print("## Mean return per phase (95% CI over streams)\n")
+        print(md(rows, list(rows[0].keys())))
+        print("\nPhases: " + "; ".join(f"{k} = {v}" for k, v in READOUT.items()) + "\n")
+        if prow:
+            print(f"## Paired difference vs {ref} (per stream)\n")
+            print(md(prow, list(prow[0].keys())) + "\n")
+        print("## Return by episode (mean over streams)\n")
+        print(md(curve, list(curve[0].keys())) + "\n")
+        print("## Memory\n")
+        print(md(mem, list(mem[0].keys())) + "\n")
     summ = summary_rows(eps)
     write_csv(os.path.join(out, "summary.csv"), summ)
     print("## Summary\n")
@@ -218,7 +286,7 @@ def main(argv=None):
           f"`infra_after_retry` = share of decision points still failed after the 2-attempt retry policy "
           f"(forced wait, timeout, target gone, deadlock). `!` = above {INFRA_FLAG:.0%} (flagged, not dropped; "
           f"runs without after-retry numbers are flagged on failed attempts).\n")
-    if a.ref:
+    if a.ref and not any(r.get("mode") == "stream" for r in eps):
         pr = paired_rows(eps, a.ref)
         write_csv(os.path.join(out, "paired.csv"), pr)
         if pr:
@@ -228,7 +296,7 @@ def main(argv=None):
     write_csv(os.path.join(out, "failures.csv"), fr)
     print("## Failure codes\n")
     print(md(fr, ["condition", "role", "codes"]))
-    traces = read_traces(a.run_dir)
+    traces = read_traces(a.run_dir, eps)
     sf = start_failure_rows(traces)
     write_csv(os.path.join(out, "start_failures.csv"), sf)
     if sf:

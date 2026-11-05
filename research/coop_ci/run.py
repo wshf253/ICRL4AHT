@@ -1,4 +1,5 @@
-"""Run one grid experiment config (cells x conditions x episodes).
+"""Run one experiment config: grid mode (cells x conditions x episodes, Exp A, M2) or stream mode
+(memory kept across a scheduled sequence of episodes, Exp B/C).
 
   python -m research.coop_ci.run research/coop_ci/configs/m2_compliance.yaml --workers 8
   python -m research.coop_ci.run <config> --partner-backend scripted --episodes 1   # offline plumbing
@@ -21,6 +22,7 @@ from .env import CONFIG_DIR, CoopEnv  # noqa: E402
 from .llm import OpenAICompatBackend  # noqa: E402
 from .prompts import ego_system_prompt, human_system_prompt  # noqa: E402
 from .runner import Backends, deep_update, grid_units, load_yaml, mismatched, run_grid  # noqa: E402
+from .stream import run_streams, schedule  # noqa: E402
 
 
 def load_config(path: str) -> dict:
@@ -56,7 +58,9 @@ def main(argv=None):
     ap.add_argument("--backends", default=os.path.join(CONFIG_DIR, "backends.yaml"))
     ap.add_argument("--ego-backend", help="override backends.ego (e.g. frontier, mock)")
     ap.add_argument("--partner-backend", help="override backends.partner (scripted or an LLM backend)")
-    ap.add_argument("--episodes", type=int, help="override episodes_per_cell")
+    ap.add_argument("--memory-backend", help="override backends.memory (the model that writes the notes)")
+    ap.add_argument("--episodes", type=int, help="override episodes_per_cell (grid mode)")
+    ap.add_argument("--streams", type=int, help="override the number of streams (stream mode)")
     ap.add_argument("--conditions", help="comma-separated subset of condition names")
     ap.add_argument("--layouts", help="comma-separated subset of cell layouts")
     ap.add_argument("--personas", help="comma-separated subset of personas")
@@ -68,8 +72,12 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     cfg = load_config(a.config)
-    if a.ego_backend:
+    if a.ego_backend:  # the memory writer follows the ego unless it was set to something else
+        if cfg["backends"].get("memory") in (None, cfg["backends"]["ego"]):
+            cfg["backends"]["memory"] = a.ego_backend
         cfg["backends"]["ego"] = a.ego_backend
+    if a.memory_backend:
+        cfg["backends"]["memory"] = a.memory_backend
     if a.partner_backend:
         cfg["backends"]["partner"] = a.partner_backend
     if a.max_steps:
@@ -80,9 +88,12 @@ def main(argv=None):
         if unknown:
             ap.error(f"unknown conditions {sorted(unknown)}")
         cfg["conditions"] = [c for c in cfg["conditions"] if c["name"] in keep]
-    if a.layouts:
+    stream_mode = cfg.get("mode") == "stream"
+    if a.streams:
+        cfg["streams"] = a.streams
+    if a.layouts and not stream_mode:
         cfg["cells"] = [c for c in cfg["cells"] if c["layout"] in a.layouts.split(",")]
-    if a.personas:
+    if a.personas and not stream_mode:
         keep = a.personas.split(",")
         cfg["cells"] = [dict(c, personas=[p for p in c["personas"] if p in keep]) for c in cfg["cells"]]
         cfg["cells"] = [c for c in cfg["cells"] if c["personas"]]
@@ -90,22 +101,32 @@ def main(argv=None):
         cfg["episodes_per_cell"] = a.episodes
 
     personas = load_yaml(os.path.join(CONFIG_DIR, cfg.get("personas_file", "personas.yaml")))
-    missing = sorted({p for c in cfg["cells"] for p in c["personas"]} - set(personas))
+    used_personas = set(cfg["family_pair"]) if stream_mode else {p for c in cfg["cells"] for p in c["personas"]}
+    missing = sorted(used_personas - set(personas))
     if missing:
         ap.error(f"unknown personas {missing}")
     specs = load_yaml(a.backends)
-    n = len(grid_units(cfg))
-    print(f"{cfg['name']}: {len(cfg['cells'])} cells x {len(cfg['conditions'])} conditions x "
-          f"{cfg['episodes_per_cell']} episodes = {n} episodes, ego={cfg['backends']['ego']}, "
-          f"partner={cfg['backends']['partner']}", flush=True)
+    if stream_mode:
+        n_ep = len(schedule(cfg))
+        print(f"{cfg['name']}: {cfg['streams']} streams x {len(cfg['conditions'])} memory conditions x {n_ep} "
+              f"episodes = {cfg['streams'] * len(cfg['conditions']) * n_ep} episodes on {cfg['layout']}; "
+              f"phases {[p['phase'] + 'x' + str(p['n']) for p in cfg['schedule']]}; ego={cfg['backends']['ego']}, "
+              f"partner={cfg['backends']['partner']}", flush=True)
+    else:
+        n = len(grid_units(cfg))
+        print(f"{cfg['name']}: {len(cfg['cells'])} cells x {len(cfg['conditions'])} conditions x "
+              f"{cfg['episodes_per_cell']} episodes = {n} episodes, ego={cfg['backends']['ego']}, "
+              f"partner={cfg['backends']['partner']}", flush=True)
     if a.dry_run:
         print(json.dumps(cfg, indent=2))
         return None
 
     backends = Backends(specs)
     used = set()
-    if any(c.get("ego", "llm") == "llm" for c in cfg["conditions"]):
+    if stream_mode or any(c.get("ego", "llm") == "llm" for c in cfg["conditions"]):
         used.add(cfg["backends"]["ego"])
+    if stream_mode and any(c.get("memory") in ("general", "partner") for c in cfg["conditions"]):
+        used.add(cfg["backends"].get("memory", cfg["backends"]["ego"]))
     if cfg["backends"]["partner"] != "scripted":
         used.add(cfg["backends"]["partner"])
     for name in sorted(used):
@@ -127,14 +148,18 @@ def main(argv=None):
             sys.exit(f"{out_dir} exists; choose another --out")
         done = set()
     os.makedirs(out_dir, exist_ok=True)
-    write_prompts(cfg, personas, out_dir)
+    if not stream_mode:
+        write_prompts(cfg, personas, out_dir)
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     with open(os.path.join(out_dir, "config.resolved.json"), "w") as f:
         json.dump({"config": cfg, "backends": {k: specs.get(k) for k in used}, "personas": personas,
                    "chat_template_kwargs_override": os.environ.get("COOP_CHAT_TEMPLATE_KWARGS"),
                    "git_commit": commit, "argv": sys.argv}, f, indent=2)
 
-    run_grid(cfg, personas, backends, out_dir, a.workers, done)
+    if stream_mode:
+        run_streams(cfg, personas, backends, out_dir, a.workers, done)
+    else:
+        run_grid(cfg, personas, backends, out_dir, a.workers, done)
     print(f"done -> {out_dir}\nanalyse: python -m research.coop_ci.analyze {out_dir}")
     return out_dir
 

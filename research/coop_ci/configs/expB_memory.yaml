@@ -1,0 +1,30 @@
+# Exp B (IMPLEMENTATION_PLAN M5): does experience transfer through outer-loop memory?
+# One stream = 10 episodes with one ego that keeps notes between episodes:
+#   A x3 (learn partner A)  |  A_heldout x2 (pure orders: the learnt division of labour no longer fits)
+#   B x3 (a new partner, other persona of the family)  |  A_return x2 (partner A again)
+# Memory is updated only after A and B episodes; held-out and return episodes use frozen notes (strict
+# transfer track). Partners A/B swap on odd streams; partner ids are opaque. Every condition sees the
+# same seeds, seats, orders and partners; only the MEMORY block differs.
+#   B0 none | B1 general lessons (no partner-specific claims) | B2 structured partner note | B3 raw history
+# Ego planner = A0 (A1 gave no gain over A0 or A1c in the Exp A pilot).
+name: expB_memory
+mode: stream
+seed: 0
+streams: 6
+layout: shared_1pot
+family_pair: [onion_supplier, tomato_supplier]
+train_recipes: mixed_two
+env: {max_steps: 300}
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner, memory: qwen3.8-27b}
+ego: {condition: A0}
+memory: {budget: 1500}
+schedule:
+  - {phase: A, partner: A, n: 3, update: true}
+  - {phase: A_heldout, partner: A, n: 2, update: false, recipes: pure_01}
+  - {phase: B, partner: B, n: 3, update: true}
+  - {phase: A_return, partner: A, n: 2, update: false}
+conditions:
+  - {name: B0, memory: none}
+  - {name: B1, memory: general}
+  - {name: B2, memory: partner}
+  - {name: B3, memory: raw}

@@ -59,8 +59,15 @@ OUTPUT_OF = {"A0": "A0", "A1": "A1", "A1c": "A1c", "A2": "A0", "A3": "A0", "A4":
 CONDITIONS = tuple(OUTPUT_OF)
 
 
-def ego_system_prompt(env: CoopEnv, condition: str, words: int, partner_id: str, profile_label: str = "") -> str:
+MEMORY_HEADER = "MEMORY (your own notes from earlier episodes; they may be incomplete or out of date)"
+
+
+def ego_system_prompt(env: CoopEnv, condition: str, words: int, partner_id: str, profile_label: str = "",
+                      memory_text: str = None) -> str:
+    """`memory_text` (Exp B/C): None = no memory block at all (Exp A); "" = the block with 'none yet'."""
     parts = _common(env) + [f"Your partner today: {partner_id}."]
+    if memory_text is not None:
+        parts.append(f"{MEMORY_HEADER}:\n{memory_text.strip() or '(none yet)'}")
     if condition in ("A2", "A4"):
         parts.append(f"{INJECT_HEADER}: Partner profile: {profile_label}")
     parts.append(OUTPUT_SPECS[OUTPUT_OF[condition]].format(w=words))

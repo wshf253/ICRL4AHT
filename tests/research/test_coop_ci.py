@@ -430,3 +430,36 @@ def test_no_plating_ego_leaves_plating_to_the_partner():
     m = epi.metrics()
     assert m["n_correct"] >= 3  # the scripted twin plates (it fetches a plate while the soup cooks)
     assert not any(e.kind == "fetch" and e.item == "an empty plate" and e.agent == epi.ego for e in env.events)
+
+
+def test_exp_b_streams_keep_memory_per_condition_and_freeze_transfer_phases(tmp_path):
+    from research.coop_ci import analyze, run
+    out = run.main([os.path.join(CONFIG_DIR, "expB_memory.yaml"), "--ego-backend", "mock", "--partner-backend",
+                    "scripted", "--streams", "2", "--max-steps", "30", "--workers", "4", "--out", str(tmp_path)])
+    eps = [json.loads(l) for l in open(os.path.join(out, "episodes.jsonl"))]
+    assert len(eps) == 2 * 4 * 10
+    by = {(r["condition"], r["stream"], r["k"]): r for r in eps}
+    for s in (0, 1):
+        # Paired design: same seed, seat, partner and orders in every condition.
+        for k in range(10):
+            rs = [by[(c, s, k)] for c in ("B0", "B1", "B2", "B3")]
+            assert len({(r["seed"], r["ego_seat"], r["persona"], r["partner_id"], r["recipes"]) for r in rs}) == 1
+        assert by[("B0", s, 0)]["persona"] != by[("B0", s, 5)]["persona"]       # partner B differs from A
+        assert by[("B0", s, 3)]["recipes"] == "pure_01"                           # held-out task
+        for c in ("B1", "B2", "B3"):
+            v = [by[(c, s, k)]["memory_in"]["version"] for k in range(10)]
+            assert v[3] == v[4] and v[8] == v[9] and v[3] > 0                     # frozen in held-out / return
+        assert all(by[("B0", s, k)]["memory_in"]["chars"] == 0 for k in range(10))
+        # Partner-specific notes: the first episode with partner B starts without notes.
+        assert by[("B2", s, 5)]["memory_in"]["chars"] == 0 and by[("B3", s, 5)]["memory_in"]["chars"] == 0
+        assert by[("B2", s, 8)]["memory_in"]["chars"] > 0                         # partner A's note is back
+        assert by[("B1", s, 5)]["memory_in"]["chars"] > 0                         # general notes carry over
+    secret = [x for p in PERSONAS.values() for x in (p["label"], p["text"])] + list(PERSONAS)
+    for r in eps:
+        assert not any(x in r["memory_in"]["text"] for x in secret)
+    analyze.main([out])
+    assert os.path.exists(os.path.join(out, "analysis", "stream_phases.csv"))
+    # Resume: nothing left to run, memory state restored from disk.
+    out2 = run.main([os.path.join(CONFIG_DIR, "expB_memory.yaml"), "--ego-backend", "mock", "--partner-backend",
+                     "scripted", "--streams", "2", "--max-steps", "30", "--workers", "4", "--resume", out])
+    assert sum(1 for _ in open(os.path.join(out2, "episodes.jsonl"))) == len(eps)

@@ -167,6 +167,33 @@ left at the end: 5-15 in LLM conditions vs 0-3 for scripted); `analyze` now also
 placements and put-backs per cook, and `ready_both_hold` (steps with a ready soup while both cooks
 hold an ingredient).
 
+## Exp B: transfer and retention through outer-loop memory (`expB_memory.yaml`, stream mode)
+
+One stream = one ego that keeps text notes across 10 episodes on shared_1pot:
+`A x3` (learn partner A) -> `A_heldout x2` (pure orders onion x3 / tomato x3, so the learnt division of
+labour no longer fits) -> `B x3` (a new partner id with the other persona) -> `A_return x2`.
+Notes are updated after A and B episodes only; held-out and return episodes use frozen notes (strict
+transfer track). Partners A/B swap on odd streams. Every condition gets the same seeds, seats, orders and
+partners; only the ego's MEMORY block differs (budget 1500 characters):
+
+| condition | memory |
+|---|---|
+| B0 | none (the block says "(none yet)") |
+| B1 | general lessons; the update prompt forbids partner-specific claims |
+| B2 | structured note per partner id: tendencies, conditions of applicability, evidence for/against (episode labels), confidence, open questions |
+| B3 | raw history: most recent episode summaries with this partner, no LLM rewrite |
+
+Ego planner = A0 (A1 gave no gain over A0 or A1c in Exp A). Episode summaries contain only what the ego
+saw (who added what, plated, served, outcomes, action counts). Every memory version, update prompt and raw
+reply is saved under `memory/<condition>/stream_<s>/`; a stopped run resumes with `--resume`.
+`analyze` (stream runs) prints the return per phase with 95% CIs over streams, paired differences vs B0
+per phase (transfer = A_heldout, unfamiliar partner = B, retention = A_return), the return by episode,
+and memory size and update failures.
+
+```bash
+DP_SIZE=2 MAX_NUM_SEQS=32 lab-run --new --spare --gpus 2 --cpus 32 --mem 160G -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/expB_memory.yaml --workers 64
+```
+
 ## Run on the server
 
 ```bash
@@ -225,7 +252,7 @@ are unchanged from the previous version: `enable_thinking: false` is verified at
 
 ## Not in this version
 
-Exp A runs (closed loop, saved-context regret, prediction probes), Exp B/C (memory), F3/F4
+Saved-context regret and prediction probes (Exp A diagnostics), Exp C (revision), memory interventions, F3/F4
 personas, frontier API runs. **F5** (optional) is the only test called ToM: the partner gets a
 partial view, something recipe-relevant changes where it cannot see it (e.g. a pot is filled), and
 the ego must predict the partner acting on its outdated belief (a false-belief test).
