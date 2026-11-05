@@ -1,0 +1,34 @@
+# Exp C (IMPLEMENTATION_PLAN M6): when should a remembered partner note be revised?
+# Setting of Exp B v2 (2-cell view, where partner notes paid off; listing order counterbalanced).
+# Per stream: a shared prefix of 3 episodes with partner A (the note is learnt once, B2 update), then every
+# regime x update rule continues from a clone of that note, always with the SAME partner id:
+#   stable     A A A A A
+#   exception  B A A A A     (the other persona behind the same id for one episode, then back)
+#   switch     B B B B B     (the other persona from then on)
+# Update rules: static (the prefix note, never updated), reflection (free rewrite after each episode),
+# evidence (B2 update, but the main tendency changes only after m = 2 consecutive contradicting episodes;
+# a single deviation is recorded as an exception).
+name: expC_revision
+mode: stream
+seed: 0
+streams: 8
+layout: shared_1pot
+family_pair: [onion_supplier, tomato_supplier]
+train_recipes: mixed_two
+counterbalance_display: true
+env: {max_steps: 300, view_radius: 2}
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner, memory: qwen3.8-27b}
+ego: {condition: A0}
+memory: {budget: 1500, m: 2}
+prefix:
+  - {phase: prefix, partner: A, n: 3, update: true}
+regimes:
+  stable:
+    - {phase: post, partner: A, n: 5, update: true}
+  exception:
+    - {phase: change, partner: A, persona: B, n: 1, update: true}
+    - {phase: post, partner: A, n: 4, update: true}
+  switch:
+    - {phase: change, partner: A, persona: B, n: 1, update: true}
+    - {phase: post, partner: A, persona: B, n: 4, update: true}
+rules: [static, reflection, evidence]

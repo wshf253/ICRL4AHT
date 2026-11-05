@@ -267,6 +267,34 @@ With a 2-cell view the true profile pays off against both personas (against the 
 B0 / B1 / B2 / B2_oracle, listing order counterbalanced. Episode summaries for the notes now contain only
 events the ego observed (identical to before under full view).
 
+### Exp B v2 (view radius 2, 16 streams): paired difference vs B0 (95% CI over streams)
+
+| condition | A (learning) | A_heldout | B (new partner) | A_return (retention) |
+|---|---|---|---|---|
+| B1 general | +7.1 [-9, 25] | +5.0 [-4, 15] | +13.3 [-8, 33] | +14.4 [-1, 30] |
+| B2 partner note | +10.4 [-8, 30] | -0.6 [-19, 18] | +6.7 [-10, 25] | **+32.5 [12, 52]** |
+| B2_oracle | +15.0 [-0, 32] | -1.2 [-14, 12] | +5.4 [-12, 22] | **+21.9 [2, 40]** |
+
+First resolved memory effect: meeting partner A again after the interleaved partner B (frozen notes), the
+learnt partner note gains +32.5, at least as much as the true label; in the first 100 steps B2 also gains
+in the A episodes (+7.1 [2, 13]) and at the return (+8.1 [3, 14]). The gain is with the hard partner (the
+supplier of the first-listed ingredient: B0 48.5, B1 65.8, B2 73.2, oracle 66.8; the other partner ~96-100
+in all). Held-out tasks (pure orders) show no effect. The notes name the partner's ingredient in 31-50%
+and never the wrong one. (12 comparisons; the A_return effect is the one to replicate.)
+
+## Exp C: revision (`expC_revision.yaml`)
+
+Setting of Exp B v2. Per stream a shared prefix (3 episodes with partner A, B2 updates) learns the note
+once; each regime x update rule then continues from a clone of it, always with the same partner id:
+stable `A A A A A`, exception `B A A A A` (the other persona behind the id for one episode), switch
+`B B B B B`. Rules: static (prefix note, never updated), reflection (free rewrite each episode),
+evidence (B2 update, but the main tendency changes only after m = 2 consecutive contradicting episodes;
+a single deviation is recorded as an exception; code-enforced via the note's named ingredient). `analyze`
+prints the return by episode, the post-change return per rule with paired differences vs static,
+revision cost (stable minus regime, same rule), episodes to recover (2 consecutive episodes at 90% of the
+stream's prefix mean) and what each note says going into each episode (A's ingredient / the new
+persona's / neither): unnecessary switches = "new" after the exception, revision = "new" after the switch.
+
 ## Run on the server
 
 ```bash
@@ -325,7 +353,7 @@ are unchanged from the previous version: `enable_thinking: false` is verified at
 
 ## Not in this version
 
-Saved-context regret and prediction probes (Exp A diagnostics), Exp C (revision), memory interventions, F3/F4
+Saved-context regret and prediction probes (Exp A diagnostics), memory interventions, F3/F4
 personas, frontier API runs. **F5** (optional) is the only test called ToM: the partner gets a
 partial view, something recipe-relevant changes where it cannot see it (e.g. a pot is filled), and
 the ego must predict the partner acting on its outdated belief (a false-belief test).

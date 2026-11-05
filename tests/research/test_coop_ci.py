@@ -516,3 +516,55 @@ def test_episode_summary_contains_only_what_the_ego_saw():
     took = sum(int(x.split(" x")[1]) for x in summ.split("Partner (what you saw):")[1].split("\n")[0].strip(" .").split(", ")
                if x.startswith("took"))
     assert took == partner_seen
+
+
+class NoteWriter(MockBackend):
+    """Memory updates that always claim the partner fetches `self.ing`."""
+    ing = "tomato"
+
+    def chat(self, messages, max_tokens=None, seed=None, json_mode=None):
+        return LLMResult(json.dumps({"tendencies": [{"claim": f"Usually fetches {self.ing}s",
+                                                     "conditions_of_applicability": "always", "evidence_for": ["E9"],
+                                                     "evidence_against": [], "confidence": 0.7}],
+                                     "open_questions": []}), finish_reason="stop")
+
+
+def test_evidence_rule_revises_only_after_m_contradicting_episodes():
+    from research.coop_ci.memory import Memory, note_verdict
+    onion_note = {"tendencies": [{"claim": "Usually fetches onions", "conditions_of_applicability": "always",
+                                  "evidence_for": ["E1", "E2"], "evidence_against": [], "confidence": 0.8}],
+                  "open_questions": []}
+    for rule, flips_at in (("evidence", 2), ("reflection", 1), ("static", None)):
+        mem = Memory("partner", backend=NoteWriter(), rule=rule, m=2)
+        mem.state["partner"]["P-1"] = json.loads(json.dumps(onion_note))
+        verdicts = []
+        for k in range(3):
+            log = mem.update("summary", "P-1", f"E{4 + k}", ("t", rule, k))
+            verdicts.append(note_verdict(mem.render("P-1")))
+        if flips_at is None:
+            assert verdicts == ["onion"] * 3 and log["status"].startswith("static")
+        else:
+            assert verdicts[:flips_at - 1] == ["onion"] * (flips_at - 1) and verdicts[flips_at - 1] == "tomato", (rule, verdicts)
+        if rule == "evidence":
+            assert "Recorded exceptions" in mem.render("P-1") and "E4: looked like tomato" in mem.render("P-1")
+
+
+def test_exp_c_clones_the_prefix_note_and_switches_the_persona_behind_one_id(tmp_path):
+    from research.coop_ci import analyze, run
+    out = run.main([os.path.join(CONFIG_DIR, "expC_revision.yaml"), "--ego-backend", "mock", "--partner-backend",
+                    "scripted", "--streams", "2", "--max-steps", "20", "--workers", "8", "--out", str(tmp_path)])
+    eps = [json.loads(l) for l in open(os.path.join(out, "episodes.jsonl"))]
+    assert len(eps) == 2 * (3 + 9 * 5)
+    for s in (0, 1):
+        r = {(e["condition"], e["k"]): e for e in eps if e["stream"] == s}
+        a = r[("prefix", 0)]
+        assert len({r[(f"{g}/{u}", 3)]["memory_in"]["text"] for g in ("stable", "exception", "switch")
+                    for u in ("static", "reflection", "evidence")}) == 1          # cloned prefix note
+        for u in ("static", "reflection", "evidence"):
+            assert r[(f"switch/{u}", 5)]["partner_id"] == a["partner_id"] != "" and r[(f"switch/{u}", 5)]["persona"] != a["persona"]
+            assert r[(f"exception/{u}", 3)]["persona"] != a["persona"] and r[(f"exception/{u}", 4)]["persona"] == a["persona"]
+            assert r[(f"stable/{u}", 7)]["persona"] == a["persona"]
+            assert r[(f"switch/{u}", 3)]["seed"] == r[(f"stable/{u}", 3)]["seed"]  # paired
+        assert len({r[("switch/static", k)]["memory_in"]["version"] for k in range(3, 8)}) == 1
+    analyze.main([out])
+    assert os.path.exists(os.path.join(out, "analysis", "revision_total.csv"))

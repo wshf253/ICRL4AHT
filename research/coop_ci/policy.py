@@ -43,3 +43,8 @@ class Policy:
 
     def set_state(self, st: dict):
         self.__dict__.update(copy.deepcopy(st))
+
+
+def trace_name(episode_id: str) -> str:
+    """File name (without .jsonl) of an episode's trace: '|' and '/' are not used in file names."""
+    return episode_id.replace("|", "__").replace("/", "-")

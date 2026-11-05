@@ -22,7 +22,7 @@ from .env import CONFIG_DIR, CoopEnv  # noqa: E402
 from .llm import OpenAICompatBackend  # noqa: E402
 from .prompts import ego_system_prompt, human_system_prompt  # noqa: E402
 from .runner import Backends, deep_update, grid_units, load_yaml, mismatched, run_grid  # noqa: E402
-from .stream import run_streams, schedule  # noqa: E402
+from .stream import run_revision, run_streams, schedule  # noqa: E402
 
 
 def load_config(path: str) -> dict:
@@ -106,7 +106,14 @@ def main(argv=None):
     if missing:
         ap.error(f"unknown personas {missing}")
     specs = load_yaml(a.backends)
-    if stream_mode:
+    if stream_mode and cfg.get("regimes"):
+        n_pre = len(schedule(cfg, cfg["prefix"]))
+        n_post = {r: len(schedule(cfg, ph)) for r, ph in cfg["regimes"].items()}
+        total = cfg["streams"] * (n_pre + len(cfg["rules"]) * sum(n_post.values()))
+        print(f"{cfg['name']}: {cfg['streams']} streams x (prefix {n_pre} + {len(cfg['regimes'])} regimes x "
+              f"{len(cfg['rules'])} rules x {list(n_post.values())} episodes) = {total} episodes on {cfg['layout']}; "
+              f"ego={cfg['backends']['ego']}, partner={cfg['backends']['partner']}", flush=True)
+    elif stream_mode:
         n_ep = len(schedule(cfg))
         print(f"{cfg['name']}: {cfg['streams']} streams x {len(cfg['conditions'])} memory conditions x {n_ep} "
               f"episodes = {cfg['streams'] * len(cfg['conditions']) * n_ep} episodes on {cfg['layout']}; "
@@ -125,7 +132,7 @@ def main(argv=None):
     used = set()
     if stream_mode or any(c.get("ego", "llm") == "llm" for c in cfg["conditions"]):
         used.add(cfg["backends"]["ego"])
-    if stream_mode and any(c.get("memory") in ("general", "partner") for c in cfg["conditions"]):
+    if stream_mode and (cfg.get("regimes") or any(c.get("memory") in ("general", "partner") for c in cfg["conditions"])):
         used.add(cfg["backends"].get("memory", cfg["backends"]["ego"]))
     if cfg["backends"]["partner"] != "scripted":
         used.add(cfg["backends"]["partner"])
@@ -156,7 +163,9 @@ def main(argv=None):
                    "chat_template_kwargs_override": os.environ.get("COOP_CHAT_TEMPLATE_KWARGS"),
                    "git_commit": commit, "argv": sys.argv}, f, indent=2)
 
-    if stream_mode:
+    if stream_mode and cfg.get("regimes"):
+        run_revision(cfg, personas, backends, out_dir, a.workers, done)
+    elif stream_mode:
         run_streams(cfg, personas, backends, out_dir, a.workers, done)
     else:
         run_grid(cfg, personas, backends, out_dir, a.workers, done)

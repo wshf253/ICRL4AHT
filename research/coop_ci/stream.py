@@ -17,16 +17,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .agents import LLMEgoPolicy
 from .llm import Usage
 from .memory import Memory, episode_summary
-from .policy import stable_seed
+from .policy import stable_seed, trace_name
 from .runner import Episode, deep_update, get_env, make_partner, partner_token, soup_records, write_jsonl
 
 
-def schedule(cfg: dict) -> list[dict]:
-    """Expand the phase list into one entry per episode."""
+def schedule(cfg: dict, phases: list = None, k0: int = 0) -> list[dict]:
+    """Expand a phase list into one entry per episode. `partner` names the partner id (A or B);
+    `persona` (default: the same role) names whose persona that id plays, so Exp C can switch the
+    persona behind an unchanged id."""
     out = []
-    for ph in cfg["schedule"]:
+    for ph in (phases if phases is not None else cfg["schedule"]):
         for j in range(ph["n"]):
-            out.append({"k": len(out), "phase": ph["phase"], "partner": ph["partner"], "j": j,
+            out.append({"k": k0 + len(out), "phase": ph["phase"], "partner": ph["partner"],
+                        "persona": ph.get("persona", ph["partner"]), "j": j,
                         "update": bool(ph.get("update", False)),
                         "recipes": ph.get("recipes", cfg.get("train_recipes"))})
     return out
@@ -43,15 +46,25 @@ def chain_dir(out_dir, cond, s):
     return os.path.join(out_dir, "memory", cond["name"], f"stream_{s}")
 
 
-def run_chain(cfg, cond, s, personas, backends, out_dir, done_ids) -> list:
+def make_memory(cfg, cond, backends) -> tuple:
+    usage = Usage()
+    mc = cfg.get("memory", {})
+    mem = Memory(cond.get("memory", "none"), budget=mc.get("budget", 1500),
+                 backend=backends.get(cfg["backends"].get("memory", cfg["backends"]["ego"])), usage=usage,
+                 rule=cond.get("rule", "standard"), m=mc.get("m", 2))
+    return mem, usage
+
+
+def run_chain(cfg, cond, s, personas, backends, out_dir, done_ids, episodes=None, mem=None, mem_usage=None,
+              extra=None) -> list:
+    """Run the episodes of one (stream, condition) in order, saving the memory after each episode."""
     roles = stream_roles(cfg, s)
     ids = {r: partner_token(cfg.get("seed", 0), "stream", s, r) for r in roles}
-    mem_usage = Usage()
-    mem = Memory(cond.get("memory", "none"), budget=cfg.get("memory", {}).get("budget", 1500),
-                 backend=backends.get(cfg["backends"].get("memory", cfg["backends"]["ego"])), usage=mem_usage)
+    if mem is None:
+        mem, mem_usage = make_memory(cfg, cond, backends)
     cdir = chain_dir(out_dir, cond, s)
     recs = []
-    for ep in schedule(cfg):
+    for ep in episodes if episodes is not None else schedule(cfg):
         k = ep["k"]
         eid = f"{cond['name']}|s{s}|{k:02d}|{ep['phase']}"
         state_path = os.path.join(cdir, f"after_{k:02d}.json")
@@ -59,14 +72,15 @@ def run_chain(cfg, cond, s, personas, backends, out_dir, done_ids) -> list:
             mem.set_state(json.load(open(state_path)))  # resume: memory as it was after this episode
             continue
         recs.append(run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, mem_usage,
-                                       out_dir, eid))
+                                       out_dir, eid, extra))
         mem.save(state_path)
     return recs
 
 
-def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, mem_usage, out_dir, eid) -> dict:
+def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, mem_usage, out_dir, eid,
+                       extra=None) -> dict:
     t_start = time.time()
-    pid = roles[ep["partner"]]
+    pid = roles[ep.get("persona", ep["partner"])]
     partner_id = ids[ep["partner"]]
     env_cfg = deep_update(cfg.get("env", {}), {"layout": cfg["layout"]})
     if cfg.get("counterbalance_display") and (s // 2) % 2:
@@ -104,7 +118,9 @@ def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, me
         os.makedirs(chain_dir(out_dir, cond, s), exist_ok=True)
         write_jsonl(os.path.join(chain_dir(out_dir, cond, s), "history.jsonl"), {"k": ep["k"], **upd})
     rec = {"episode_id": eid, "mode": "stream", "condition": cond["name"], "memory_kind": mem.kind,
-           "stream": s, "k": ep["k"], "phase": ep["phase"], "partner_role": ep["partner"], "persona": pid,
+           "memory_rule": mem.rule, **(extra or {}),
+           "stream": s, "k": ep["k"], "phase": ep["phase"], "partner_role": ep["partner"],
+           "persona_role": ep.get("persona", ep["partner"]), "persona": pid,
            "family": personas[pid].get("family"), "partner_id": partner_id, "layout": cfg["layout"],
            "recipes": ep["recipes"], "seed": seed, "ego_seat": seat, "ego_policy": ego.name,
            "partner_policy": partner.name, "env": env_cfg,
@@ -114,12 +130,43 @@ def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, me
            "usage": {k: v.as_dict() for k, v in usage.items()}, "wall_s": round(time.time() - t_start, 1)}
     write_jsonl(os.path.join(out_dir, "episodes.jsonl"), rec)
     os.makedirs(os.path.join(out_dir, "traces"), exist_ok=True)
-    with open(os.path.join(out_dir, "traces", eid.replace("|", "__") + ".jsonl"), "w") as f:
+    with open(os.path.join(out_dir, "traces", trace_name(eid) + ".jsonl"), "w") as f:
         for r in epi.trace:
             f.write(json.dumps(r, default=str) + "\n")
     print(f"{eid} ({pid}): return {rec['return']:+.0f} (correct {rec['n_correct']}, wrong {rec['n_wrong']}), "
           f"memory in {len(mem_text)} chars v{version_in}, update {upd.get('status')}, {rec['wall_s']}s", flush=True)
     return rec
+
+
+# --------------------------------------------------------------------------- #
+# Exp C: revision. One shared prefix per stream (the partner note is learnt once), then every
+# regime x update rule continues from a clone of that note.
+# --------------------------------------------------------------------------- #
+def run_revision(cfg, personas, backends, out_dir, workers, done_ids=frozenset()):
+    prefix_cond = {"name": "prefix", "memory": "partner", "rule": "standard"}
+    prefix = schedule(cfg, cfg["prefix"])
+
+    def do_prefix(s):
+        mem, usage = make_memory(cfg, prefix_cond, backends)
+        run_chain(cfg, prefix_cond, s, personas, backends, out_dir, done_ids, prefix, mem, usage,
+                  {"regime": "prefix", "rule": "standard"})
+        return s, mem.get_state()
+
+    chains = [(regime, rule) for regime in cfg["regimes"] for rule in cfg["rules"]]
+
+    def do_chain(s, state, regime, rule):
+        cond = {"name": f"{regime}/{rule}", "memory": "partner", "rule": rule}
+        mem, usage = make_memory(cfg, cond, backends)
+        mem.set_state(state)  # clone of the prefix note
+        eps = schedule(cfg, cfg["regimes"][regime], k0=len(prefix))
+        return run_chain(cfg, cond, s, personas, backends, out_dir, done_ids, eps, mem, usage,
+                         {"regime": regime, "rule": rule})
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        states = [f.result() for f in as_completed([pool.submit(do_prefix, s) for s in range(cfg["streams"])])]
+        futs = [pool.submit(do_chain, s, st, regime, rule) for s, st in states for regime, rule in chains]
+        for f in as_completed(futs):
+            f.result()
 
 
 def stream_units(cfg) -> list:

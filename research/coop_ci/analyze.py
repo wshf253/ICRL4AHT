@@ -18,6 +18,8 @@ import os
 from collections import Counter, defaultdict
 from statistics import mean
 
+from .memory import note_verdict
+from .policy import trace_name
 from .stats import boot_ci, fmt, paired_diff
 
 INFRA_FLAG = 0.02
@@ -55,7 +57,7 @@ def fill_from_traces(eps, run_dir):
     d = os.path.join(run_dir, "traces")
     for r in eps:
         w = r["waste"]
-        p = os.path.join(d, r["episode_id"].replace("|", "__") + ".jsonl")
+        p = os.path.join(d, trace_name(r["episode_id"]) + ".jsonl")
         if not os.path.exists(p):
             continue
         cnt = {k: {"ego": 0, "partner": 0} for k in ("counter_places", "put_backs")}
@@ -196,7 +198,7 @@ def read_traces(run_dir, eps=None):
     """(episode meta, decision records) per episode, from traces/<episode_id>.jsonl. With `eps` the
     meta comes from the episode records (stream ids do not encode layout and persona)."""
     d = os.path.join(run_dir, "traces")
-    meta = {r["episode_id"].replace("|", "__"): {"condition": r["condition"], "layout": r["layout"],
+    meta = {trace_name(r["episode_id"]): {"condition": r["condition"], "layout": r["layout"],
                                                  "persona": r["persona"]} for r in eps or []}
     out = []
     for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -304,26 +306,6 @@ def stream_rows(eps, ref, value=None):
     return rows, prow, curve, mem
 
 
-CLAIM_VERBS = ("fetch", "bring", "brought", "suppl", "add", "carr", "get", "grab", "take", "took", "focus", "prefer", "handle")
-
-
-def note_verdict(text: str) -> str:
-    """Which ingredient a partner note says the partner usually supplies: 'onion', 'tomato', 'both' or
-    'none' (keyword heuristic over the tendency lines; read notes.md before trusting it)."""
-    votes = Counter()
-    for line in text.lower().splitlines():
-        if not line.lstrip().startswith("-") or not any(v in line for v in CLAIM_VERBS):
-            continue
-        claim = line.split("(when:")[0]
-        hits = [w for w in ("onion", "tomato") if w in claim]
-        if len(hits) == 1:
-            votes[hits[0]] += 1
-    if not votes:
-        return "none"
-    top = votes.most_common()
-    return top[0][0] if len(top) == 1 or top[0][1] > top[1][1] else "both"
-
-
 def note_accuracy_rows(eps, personas_pref):
     """Per learning condition: does the note the ego carries say the right thing about the partner?"""
     rows = []
@@ -361,6 +343,68 @@ def note_samples(eps) -> str:
     return "\n".join(out)
 
 
+ING = {"onion_supplier": "onion", "tomato_supplier": "tomato"}
+
+
+def revision_rows(eps):
+    """Exp C tables: returns after the change, revision cost vs the stable regime, recovery, and what the
+    note says (A's ingredient or the new persona's) episode by episode. Resampling unit: stream."""
+    pre = defaultdict(list)
+    a_ing = {}
+    for r in eps:
+        if r.get("regime") == "prefix":
+            pre[r["stream"]].append(r["return"])
+            a_ing[r["stream"]] = ING.get(r["persona"])
+    post = [r for r in eps if r.get("regime") not in (None, "prefix")]
+    chains = sorted({(r["regime"], r["rule"]) for r in post})
+    ks = sorted({r["k"] for r in post})
+    by = defaultdict(dict)  # (regime, rule) -> stream -> {k: rec}
+    for r in post:
+        by[(r["regime"], r["rule"])].setdefault(r["stream"], {})[r["k"]] = r
+    curve, total, cost, notes = [], [], [], []
+    pre_mean = {s: mean(v) for s, v in pre.items() if v}
+    for reg, rule in chains:
+        row = {"regime": reg, "rule": rule, "prefix (mean)": fmt(mean(pre_mean.values()) if pre_mean else None, 0)}
+        for k in ks:
+            v = [d[k]["return"] for d in by[(reg, rule)].values() if k in d]
+            row[f"E{k + 1}"] = fmt(mean(v) if v else None, 0)
+        curve.append(row)
+        sums = {s: sum(x["return"] for x in d.values()) for s, d in by[(reg, rule)].items() if len(d) == len(ks)}
+        lo, hi = boot_ci(list(sums.values()))
+        trow = {"regime": reg, "rule": rule, "streams": len(sums),
+                "post-change return (sum)": f"{fmt(mean(sums.values()) if sums else None)} [{fmt(lo)}, {fmt(hi)}]"}
+        static = {s: sum(x["return"] for x in d.values()) for s, d in by[(reg, "static")].items() if len(d) == len(ks)}
+        if rule != "static" and static:
+            dd, (dl, dh), n = paired_diff(sums, static)
+            trow["vs static (paired)"] = f"{fmt(dd)} [{fmt(dl)}, {fmt(dh)}]"
+        else:
+            trow["vs static (paired)"] = "-"
+        # recovery: first post episode from which 2 consecutive episodes reach 90% of the stream's prefix mean
+        rec = []
+        for s, d in by[(reg, rule)].items():
+            seq = [d[k]["return"] for k in ks if k in d]
+            thr = 0.9 * pre_mean.get(s, 0)
+            hit = next((j + 1 for j in range(len(seq) - 1) if seq[j] >= thr and seq[j + 1] >= thr), len(seq) + 1)
+            rec.append(hit)
+        trow["episodes to recover (mean)"] = fmt(mean(rec) if rec else None, 1)
+        total.append(trow)
+        if reg != "stable":
+            stable = {s: sum(x["return"] for x in d.values()) for s, d in by[("stable", rule)].items() if len(d) == len(ks)}
+            dd, (dl, dh), n = paired_diff(stable, sums)
+            cost.append({"regime": reg, "rule": rule, "streams": n,
+                         "revision cost = stable - regime (sum over post episodes)": f"{fmt(dd)} [{fmt(dl)}, {fmt(dh)}]"})
+        nrow = {"regime": reg, "rule": rule}
+        for k in ks:
+            c = Counter()
+            for s, d in by[(reg, rule)].items():
+                if k in d:
+                    v = note_verdict(d[k]["memory_in"]["text"])
+                    c["A" if v == a_ing.get(s) else ("new" if v in ("onion", "tomato") else "-")] += 1
+            nrow[f"into E{k + 1}"] = f"A {c['A']} / new {c['new']} / - {c['-']}"
+        notes.append(nrow)
+    return curve, total, cost, notes
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -371,7 +415,22 @@ def main(argv=None):
     fill_from_traces(eps, a.run_dir)
     out = os.path.join(a.run_dir, "analysis")
     os.makedirs(out, exist_ok=True)
-    if any(r.get("mode") == "stream" for r in eps):
+    if any(r.get("regime") for r in eps):
+        curve, total, cost, notes = revision_rows(eps)
+        for name, data in (("revision_curve", curve), ("revision_total", total), ("revision_cost", cost),
+                           ("revision_notes", notes)):
+            write_csv(os.path.join(out, f"{name}.csv"), data)
+        print("## Exp C: return by episode (mean over streams; E1-E3 = shared prefix)\n")
+        print(md(curve, list(curve[0].keys())) + "\n")
+        print("## Return after the change (sum over the post-prefix episodes, 95% CI over streams)\n")
+        print(md(total, list(total[0].keys())) + "\n")
+        if cost:
+            print("## Revision cost: stable minus regime, same rule (paired by stream)\n")
+            print(md(cost, list(cost[0].keys())) + "\n")
+        print("## What the note says going into each episode: A's ingredient / the new persona's / neither "
+              "(keyword heuristic)\n")
+        print(md(notes, list(notes[0].keys())) + "\n")
+    elif any(r.get("mode") == "stream" for r in eps):
         ref = a.ref or "B0"
         rows, prow, curve, mem = stream_rows(eps, ref)
         for name, data in (("stream_phases", rows), ("stream_paired", prow), ("stream_curve", curve), ("memory", mem)):

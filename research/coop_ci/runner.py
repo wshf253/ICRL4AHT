@@ -27,7 +27,7 @@ from .agents import LLMEgoPolicy, LLMHumanPolicy
 from .env import A_STAY, ACTION_VEC, MOVE_ACTIONS, CoopEnv, decode_ingredients, is_ingredient
 from .llm import Backend, Usage, build_backend
 from .planner import NOT_INFRA, Executor, parse_macro
-from .policy import Policy, stable_seed
+from .policy import Policy, stable_seed, trace_name
 from .scripted import complies, ego_policy, opportunity, persona_policy, side_checks, useful_actions
 
 PARTNER_EVENT_KINDS = ("pot_add", "counter_place", "counter_pick", "deliver", "plate_soup", "put_back")
@@ -415,7 +415,7 @@ def run_episode(cfg: dict, cell: dict, cond: dict, persona_id: str, ep: int, bac
            "usage": {k: v.as_dict() for k, v in usage.items()}, "wall_s": round(time.time() - t_start, 1)}
     write_jsonl(os.path.join(out_dir, "episodes.jsonl"), rec)
     os.makedirs(os.path.join(out_dir, "traces"), exist_ok=True)
-    with open(os.path.join(out_dir, "traces", eid.replace("|", "__") + ".jsonl"), "w") as f:
+    with open(os.path.join(out_dir, "traces", trace_name(eid) + ".jsonl"), "w") as f:
         for r in epi.trace:
             f.write(json.dumps(r, default=str) + "\n")
     return rec
