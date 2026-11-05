@@ -212,6 +212,23 @@ the same run directory) and the privileged control `B2_oracle` (the true persona
 which shows what a correct partner note can do inside a stream; `analyze` writes the notes each
 condition carried (analysis/notes.md) to check what B1/B2 actually learnt.
 
+### Exp B, 12 streams (paired difference vs B0, 95% CI over streams)
+
+| condition | A (learning) | A_heldout | B (new partner) | A_return |
+|---|---|---|---|---|
+| B1 general | +2.2 [-11, 17] | +1.7 [-13, 18] | +10.6 [-11, 28] | -1.7 [-18, 16] |
+| B2 partner note | +5.0 [-13, 26] | +2.5 [-17, 23] | -12.8 [-32, 6] | -6.7 [-28, 12] |
+| B2_oracle (true label) | +10.0 [-8, 28] | +5.8 [-5, 18] | +8.3 [-7, 24] | +3.3 [-7, 14] |
+
+Still unresolved. By persona (all phases): against onion_supplier B0 59, B2 64, B1 75, B2_oracle 76;
+against tomato_supplier all 109-120. Even the true label as the note gains only ~+17 against
+onion_supplier and nothing against tomato_supplier; general lessons (B1) do as well as the true label,
+and the learnt partner notes (B2) do worse than both (B2 note updates also failed to parse 11/72 times).
+Changes: memory-update reply cap 700 -> 1000 tokens; `analyze` scores whether each B2 note names the
+partner's ingredient (keyword heuristic, `note_accuracy.csv`); `counterbalance_display: true` lists tomato
+first in half the streams (crossed with which persona is A), to be switched on if the listing-order check
+confirms a position bias.
+
 ## Run on the server
 
 ```bash

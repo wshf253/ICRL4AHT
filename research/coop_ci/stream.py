@@ -69,6 +69,10 @@ def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, me
     pid = roles[ep["partner"]]
     partner_id = ids[ep["partner"]]
     env_cfg = deep_update(cfg.get("env", {}), {"layout": cfg["layout"]})
+    if cfg.get("counterbalance_display") and (s // 2) % 2:
+        # Streams 2-3, 6-7, ... list tomato first everywhere (crossed with which persona is A), so a
+        # listing-order bias of the model cannot favour one persona.
+        env_cfg["display_order"] = [1, 0]
     if ep["recipes"]:
         env_cfg["recipes"] = ep["recipes"]
     env = get_env(env_cfg)

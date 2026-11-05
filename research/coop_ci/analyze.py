@@ -267,6 +267,44 @@ def stream_rows(eps, ref):
     return rows, prow, curve, mem
 
 
+CLAIM_VERBS = ("fetch", "bring", "brought", "suppl", "add", "carr", "get", "grab", "take", "took", "focus", "prefer", "handle")
+
+
+def note_verdict(text: str) -> str:
+    """Which ingredient a partner note says the partner usually supplies: 'onion', 'tomato', 'both' or
+    'none' (keyword heuristic over the tendency lines; read notes.md before trusting it)."""
+    votes = Counter()
+    for line in text.lower().splitlines():
+        if not line.lstrip().startswith("-") or not any(v in line for v in CLAIM_VERBS):
+            continue
+        claim = line.split("(when:")[0]
+        hits = [w for w in ("onion", "tomato") if w in claim]
+        if len(hits) == 1:
+            votes[hits[0]] += 1
+    if not votes:
+        return "none"
+    top = votes.most_common()
+    return top[0][0] if len(top) == 1 or top[0][1] > top[1][1] else "both"
+
+
+def note_accuracy_rows(eps, personas_pref):
+    """Per learning condition: does the note the ego carries say the right thing about the partner?"""
+    rows = []
+    for c in sorted({r["condition"] for r in eps if r["memory_kind"] == "partner"}):
+        g = defaultdict(Counter)
+        for r in eps:
+            if r["condition"] != c or not r["memory_in"]["text"]:
+                continue
+            v = note_verdict(r["memory_in"]["text"])
+            truth = personas_pref.get(r["persona"])
+            g[r["phase"]]["right" if v == truth else ("wrong" if v in ("onion", "tomato") else v)] += 1
+        for ph in [p for p in PHASE_ORDER if p in g]:
+            n = sum(g[ph].values())
+            rows.append({"condition": c, "phase": ph, "notes": n, "right": g[ph]["right"], "wrong": g[ph]["wrong"],
+                         "both/none": g[ph]["both"] + g[ph]["none"], "right_share": fmt(g[ph]["right"] / n, 2)})
+    return rows
+
+
 def note_samples(eps) -> str:
     """The notes each learning condition carried into the first A_return episode (partner A, all
     updates done) and into the last B episode, next to the true personas (evaluator only)."""
@@ -310,6 +348,12 @@ def main(argv=None):
         print(md(curve, list(curve[0].keys())) + "\n")
         print("## Memory\n")
         print(md(mem, list(mem[0].keys())) + "\n")
+        pref = {"onion_supplier": "onion", "tomato_supplier": "tomato"}
+        acc = note_accuracy_rows(eps, pref)
+        if acc:
+            write_csv(os.path.join(out, "note_accuracy.csv"), acc)
+            print("## Partner notes: does the note name the partner's ingredient? (keyword heuristic)\n")
+            print(md(acc, list(acc[0].keys())) + "\n")
         notes = note_samples(eps)
         with open(os.path.join(out, "notes.md"), "w") as f:
             f.write(notes)

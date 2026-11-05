@@ -476,3 +476,12 @@ def test_display_order_lists_tomato_first_without_changing_the_game():
     assert b.menu() == ["tomato+tomato+onion", "tomato+onion+onion"]
     assert valid_actions(b, 0)[:2] == ["fetch tomato", "fetch onion"] and "1=tomato, 0=onion" in b.static_map_text()
     assert b.recipe_str(b.orders[0]) in b.observation_text(0) and "tomato" in b.orders_text().split(":")[1].split("+")[0]
+
+
+def test_note_verdict_heuristic():
+    from research.coop_ci.analyze import note_verdict
+    note = ("Partner P-1:\n- Usually fetches onions for the pot (when: onions needed; for: E1,E2; against: -; confidence 0.8)\n"
+            "- Plates when a soup is ready (when: -; for: E2; against: -; confidence 0.5)")
+    assert note_verdict(note) == "onion"
+    assert note_verdict("Partner P-1:\n- Brings tomatoes first (when: always; for: E1; against: -; confidence 0.6)") == "tomato"
+    assert note_verdict("Partner P-1:\n- Waits a lot") == "none"

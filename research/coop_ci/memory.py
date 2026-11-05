@@ -96,7 +96,7 @@ class Memory:
     """The notes of one (stream, condition). State is plain JSON, saved after every episode."""
 
     def __init__(self, kind: str, budget: int = 1500, backend: Optional[Backend] = None,
-                 usage: Optional[Usage] = None, max_tokens: int = 700):
+                 usage: Optional[Usage] = None, max_tokens: int = 1000):
         if kind not in KINDS:
             raise ValueError(f"unknown memory kind {kind}")
         self.kind, self.budget, self.backend, self.usage, self.max_tokens = kind, budget, backend, usage, max_tokens
