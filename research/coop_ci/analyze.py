@@ -226,11 +226,19 @@ READOUT = {"A": "familiar partner (learning)", "A_heldout": "transfer: held-out 
            "B": "unfamiliar partner", "A_return": "retention: partner A again, frozen notes"}
 
 
-def stream_rows(eps, ref):
-    """Stream runs (Exp B/C): resampling unit = stream (episodes within a stream are not independent)."""
-    per = defaultdict(lambda: defaultdict(list))  # (cond, phase) -> stream -> returns
+def early_return(r, horizon):
+    """Native return from deliveries in the first `horizon` steps (from the soup records)."""
+    return sum((20 if s["correct"] else -20) for s in r.get("soups", [])
+               if s.get("delivered_t") is not None and s["delivered_t"] <= horizon)
+
+
+def stream_rows(eps, ref, value=None):
+    """Stream runs (Exp B/C): resampling unit = stream (episodes within a stream are not independent).
+    `value(r)` picks the outcome (default: the episode return)."""
+    value = value or (lambda r: r["return"])
+    per = defaultdict(lambda: defaultdict(list))  # (cond, phase) -> stream -> values
     for r in eps:
-        per[(r["condition"], r["phase"])][r["stream"]].append(r["return"])
+        per[(r["condition"], r["phase"])][r["stream"]].append(value(r))
     conds = sorted({r["condition"] for r in eps})
     phases = [p for p in PHASE_ORDER if any(r["phase"] == p for r in eps)] + sorted(
         {r["phase"] for r in eps} - set(PHASE_ORDER))
@@ -252,7 +260,7 @@ def stream_rows(eps, ref):
         ks = sorted({r["k"] for r in eps if r["condition"] == c})
         row = {"condition": c}
         for k in ks:
-            v = [r["return"] for r in eps if r["condition"] == c and r["k"] == k]
+            v = [value(r) for r in eps if r["condition"] == c and r["k"] == k]
             ph = next(r["phase"] for r in eps if r["k"] == k)
             row[f"E{k + 1} {ph}"] = fmt(mean(v), 0)
         curve.append(row)
@@ -328,6 +336,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
     ap.add_argument("--ref", help="reference condition for paired differences")
+    ap.add_argument("--early", type=int, default=100, help="stream runs: also compare the return in the first N steps")
     a = ap.parse_args(argv)
     eps = [json.loads(l) for l in open(os.path.join(a.run_dir, "episodes.jsonl")) if l.strip()]
     fill_from_traces(eps, a.run_dir)
@@ -346,6 +355,12 @@ def main(argv=None):
             print(md(prow, list(prow[0].keys())) + "\n")
         print("## Return by episode (mean over streams)\n")
         print(md(curve, list(curve[0].keys())) + "\n")
+        # Memory should matter most early in an episode, before the partner can be read from play.
+        _, eprow, ecurve, _ = stream_rows(eps, ref, value=lambda r: early_return(r, a.early))
+        write_csv(os.path.join(out, "stream_paired_early.csv"), eprow)
+        if eprow:
+            print(f"## Paired difference vs {ref}, return in the first {a.early} steps only\n")
+            print(md(eprow, list(eprow[0].keys())) + "\n")
         print("## Memory\n")
         print(md(mem, list(mem[0].keys())) + "\n")
         pref = {"onion_supplier": "onion", "tomato_supplier": "tomato"}
