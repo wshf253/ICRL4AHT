@@ -441,6 +441,15 @@ def main(argv=None):
         if prow:
             print(f"## Paired difference vs {ref} (per stream)\n")
             print(md(prow, list(prow[0].keys())) + "\n")
+        # Stratified by partner A: is A the supplier of the first-listed ingredient (the hard partner)?
+        hard = {r["stream"]: first_listed(r) == "first" for r in eps if r.get("partner_role") == "A" and r["k"] == 0}
+        for label, keep in (("A is the hard partner (first-listed supplier)", True), ("A is the other partner", False)):
+            sub = [r for r in eps if hard.get(r["stream"]) is keep]
+            if sub:
+                _, sp, _, _ = stream_rows(sub, ref)
+                write_csv(os.path.join(out, f"stream_paired_{'hardA' if keep else 'easyA'}.csv"), sp)
+                print(f"## Paired difference vs {ref}, streams where {label} ({len({r['stream'] for r in sub})} streams)\n")
+                print(md(sp, list(sp[0].keys())) + "\n")
         print("## Return by episode (mean over streams)\n")
         print(md(curve, list(curve[0].keys())) + "\n")
         # Memory should matter most early in an episode, before the partner can be read from play.

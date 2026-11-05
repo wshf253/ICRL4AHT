@@ -282,6 +282,13 @@ supplier of the first-listed ingredient: B0 48.5, B1 65.8, B2 73.2, oracle 66.8;
 in all). Held-out tasks (pure orders) show no effect. The notes name the partner's ingredient in 31-50%
 and never the wrong one. (12 comparisons; the A_return effect is the one to replicate.)
 
+Partner-specific vs generic (paired vs B1): B2 - B1 at A_return +18.1 [-9, 42] (first 100 steps
++4.4 [-1, 10]), B2_oracle - B1 +7.5 [-16, 28]: not resolved with 16 streams. B1's general notes absorb the
+partner-B episodes and its return dips when A comes back (E9: B1 56, B2 80), which is what a
+partner-specific note avoids, but the per-stream spread (~+-50 on a 2-episode phase) needs more data.
+`expB_retention.yaml` (24 streams, A x3 -> B x3 -> A_return x4, B0/B1/B2) is the confirmatory run;
+`analyze` now also splits the stream comparisons by whether partner A is the hard (first-listed) supplier.
+
 ## Exp C: revision (`expC_revision.yaml`)
 
 Setting of Exp B v2. Per stream a shared prefix (3 episodes with partner A, B2 updates) learns the note

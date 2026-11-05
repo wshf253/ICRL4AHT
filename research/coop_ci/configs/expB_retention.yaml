@@ -1,0 +1,16 @@
+# Exp B v3 (confirmatory for retention): Exp B v2 found that the learnt partner note helps when partner A
+# returns after partner B (B2 - B0 +32.5 [12, 52]), but B2 - B1 (+18 [-9, 42]) was unresolved with 16 streams.
+# This run concentrates the budget there: no held-out phase (no effect in v1 or v2), four return episodes,
+# 24 streams. Same setting (2-cell view, listing order counterbalanced).
+base: expB_memory.yaml
+name: expB_retention
+streams: 24
+env: {max_steps: 300, view_radius: 2}
+schedule:
+  - {phase: A, partner: A, n: 3, update: true}
+  - {phase: B, partner: B, n: 3, update: true}
+  - {phase: A_return, partner: A, n: 4, update: false}
+conditions:
+  - {name: B0, memory: none}
+  - {name: B1, memory: general}
+  - {name: B2, memory: partner}
