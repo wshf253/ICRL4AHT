@@ -244,6 +244,17 @@ in that cell (+42 / +54) and much less in the other (+12 / -2). All experiment c
 `counterbalance_display: true` (grid: episode pairs; streams: stream pairs, crossed with which persona is
 A), and `analyze` reports the return by whether the partner supplies the first-listed ingredient.
 
+### Why Exp B shows no partner-specific memory gain, and the next gate
+
+Even the true label as the note (B2_oracle) gains only ~+10 over a whole episode and +5 [-2, 13] in the
+first 100 steps; general lessons (B1) match it. With full view the ego reads the partner from play within
+the episode (its own split is already complementary without memory), and what matters most against the
+hard partner ("keep a hand free and serve") is a generic lesson. Before the next Exp B, a scenario must
+pass a gate: the true profile (A2) clearly beats A0 against both personas, listing order counterbalanced.
+`expA_view_check.yaml` tests the cheapest candidate, a 2-cell view radius for both cooks (the partner is
+usually out of view on shared_1pot), with full view as the paired reference. If it passes, Exp B v2 adds
+`env: {view_radius: 2}` to `expB_memory.yaml`.
+
 ## Run on the server
 
 ```bash

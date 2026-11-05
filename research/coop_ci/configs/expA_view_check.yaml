@@ -1,0 +1,18 @@
+# Gate for the next Exp B: does knowing the partner pay off once the partner cannot be read from play?
+# With full view the ego sees what the partner carries and adapts within the episode (Exp B: even the
+# true label as the note gained ~+10, nothing in the first 100 steps). Here both cooks see only cells
+# within 2 steps (Chebyshev); on shared_1pot the start cells are 4 apart. Pass if A2 (true profile) clearly
+# beats A0 against both personas with view radius 2 (listing order counterbalanced); full view is the
+# within-run reference. Same seeds in every cell (paired by persona x episode index).
+name: expA_view_check
+seed: 0
+env: {max_steps: 300}
+counterbalance_display: true
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+cells:
+  - {name: shared_1pot_full, layout: shared_1pot, personas: [onion_supplier, tomato_supplier]}
+  - {name: shared_1pot_view2, layout: shared_1pot, env: {view_radius: 2}, personas: [onion_supplier, tomato_supplier]}
+conditions:
+  - {name: A0, condition: A0}
+  - {name: A2, condition: A2}
+episodes_per_cell: 12
