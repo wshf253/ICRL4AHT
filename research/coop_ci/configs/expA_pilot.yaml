@@ -22,4 +22,4 @@ conditions:
   - {name: ref_complementary, ego: complementary}
   - {name: ref_conflicting, ego: conflicting}
   - {name: ref_neutral, ego: neutral}
-episodes_per_cell: 6
+episodes_per_cell: 10

@@ -65,7 +65,7 @@ class LLMEgoPolicy(_LLMPolicyBase):
 
     def max_tokens(self) -> int:
         # A1 and A1c share one cap (token-matched control).
-        return MAX_TOKENS["A0"] if OUTPUT_OF[self.condition] == "A0" else int(self.words * 2.5) + 120
+        return MAX_TOKENS["A0"] if OUTPUT_OF[self.condition] == "A0" else int(self.words * 4) + 160
 
     def system_prompt(self, env) -> str:
         return ego_system_prompt(env, self.condition, self.words, self.partner_id, self.profile_label)

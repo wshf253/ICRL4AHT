@@ -105,12 +105,18 @@ class ScriptedCook(Policy):
     def decide(self, env, i, last_result="", context=None) -> Decision:
         return Decision(env.t, i, self.act(env, i))
 
+    @staticmethod
+    def _free_counter(env: CoopEnv, i: int) -> bool:
+        return bool(reachable_targets(env, i, [c for c in env.counters if env.cell(c)[1] == 0]))
+
     def act(self, env: CoopEnv, i: int) -> str:
         inv = env.inventory(i)
         many = len(env.pots) > 1
         if is_cooked(inv):
             dish = decode_ingredients(inv)
-            return "deliver" if env.matches_open_order(dish) else "place on counter"
+            if env.matches_open_order(dish) or not self._free_counter(env, i):
+                return "deliver"  # a wrong dish with nowhere to set it aside is served (-20)
+            return "place on counter"
         if is_plate(inv):
             st = {p: env.pot_status(p) for p in env.pots}
             ready = [p for p in env.pots if st[p][0] == "ready"]
@@ -127,7 +133,7 @@ class ScriptedCook(Policy):
             # once) is flushed: fill it with anything, then plate the wrong soup and set it aside.
             plan = plan or [pp for pp in pots if is_junk(pp)]
             if not plan:
-                return "place on counter"
+                return "place on counter" if self._free_counter(env, i) else "put back"
             order = {p: n for n, p in enumerate(reachable_targets(env, i, [pp["pot"] for pp in plan]))}
             plan.sort(key=lambda pp: (-len(pp["contents"]), order.get(pp["pot"], 99)))
             pot = plan[0]["pot"]

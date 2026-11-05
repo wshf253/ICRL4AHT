@@ -71,6 +71,7 @@ def summary_rows(eps):
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
             "blocking": fmt(mean(r["blocking_rate"] for r in rs), 3),
             "dup_ing": fmt(mean(r["waste"]["dup_ingredient"] for r in rs), 2),
+            "counters_end": fmt(mean(r["waste"]["counter_items_end"] for r in rs), 1),
             "wrong_adds": fmt(mean(r["waste"]["wrong_soup_add"]["ego"] + r["waste"]["wrong_soup_add"]["partner"] for r in rs), 2),
             "calls_ego/partner": f"{fmt(mean(r['usage']['ego']['calls'] for r in rs), 0)}/{fmt(mean(r['usage']['partner']['calls'] for r in rs), 0)}",
             "out_tok_ego": fmt(mean(r["usage"]["ego"]["completion_tokens"] / max(1, r["usage"]["ego"]["calls"]) for r in rs), 0),

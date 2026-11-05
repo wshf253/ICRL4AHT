@@ -39,6 +39,7 @@ def grammar_for(env: CoopEnv) -> str:
         f"- put in pot{pot:<19}put the held ingredient into " + ("pot_k (or the nearest pot that can take it)" if many else "the pot"),
         f"- plate soup{pot:<19}with an empty plate in hand, take the soup from a pot that is cooking (waits by it) or ready",
         "- deliver                     bring the held dish to the serving window X",
+        "- put back                    return the held ingredient or empty plate to its pile",
         "- place on counter <x> <y>    put the held item on that counter (omit x y for the nearest free one)",
         "- pick up from counter <x> <y>",
         "- move to <x> <y>             walk to a floor cell, or next to the station/counter at (x, y)",
@@ -92,6 +93,8 @@ def parse_macro(text: str, env: CoopEnv) -> Optional[Macro]:
         if pot is False:
             return None
         return Macro("plate_soup", pot=pot, raw=f"plate soup {name}" if pot else "plate soup")
+    if re.fullmatch(r"(?:put (?:it )?back|return(?: it)?)(?: (?:to|on) (?:the |its )?pile)?", s):
+        return Macro("put_back", raw="put back")
     if re.fullmatch(r"deliver(?: (?:the )?dish)?", s):
         return Macro("deliver", raw="deliver")
     m = re.fullmatch(r"place (?:it )?on (?:the )?counter(?: (\d+) (\d+))?", s)
@@ -186,6 +189,8 @@ def subgoal(env: CoopEnv, i: int, m: Macro, target=None) -> tuple[str, str]:
         return "counter:pick", f"counter:pick:{item_kind(env, obj)}"
     if m.kind == "move_to":
         return "move", "move"
+    if m.kind == "put_back":
+        return "put_back", f"put_back:{item_kind(env, env.inventory(i))}"
     return "wait", "wait"
 
 
@@ -280,6 +285,9 @@ class Executor:
             return "no_dish", "not holding a dish"
         if m.kind == "place_counter" and inv == 0:
             return "empty_hands", "holding nothing"
+        if m.kind == "put_back" and not (is_ingredient(inv) or (is_plate(inv) and not is_cooked(inv))):
+            return ("no_item", "holding nothing" if inv == 0 else
+                    f"only an ingredient or an empty plate can be put back (holding {env.item_text(inv)})")
         if m.kind == "move_to":
             if m.xy is None or not (0 <= m.xy[0] < env.W and 0 <= m.xy[1] < env.H):
                 return "outside", f"{m.xy} is outside the kitchen"
@@ -344,6 +352,9 @@ class Executor:
             cand = ready or [p for p in pots if st[p][0] == "cooking"]
         elif m.kind == "deliver":
             cand = env.goals
+        elif m.kind == "put_back":
+            inv = env.inventory(i)
+            cand = env.plate_piles if is_plate(inv) else env.piles.get(decode_ingredients(inv)[0], []) if inv else []
         elif m.kind == "place_counter":
             # A named cell that is not a free counter falls back to the nearest free one: the
             # intent ("put this down") is clear, and the result message says where it went.
@@ -456,7 +467,7 @@ class Executor:
             return is_ingredient(inv) and decode_ingredients(inv) == [m.arg]
         if m.kind == "fetch_plate":
             return is_plate(inv) and not is_cooked(inv)
-        if m.kind in ("put_in_pot", "deliver", "place_counter"):
+        if m.kind in ("put_in_pot", "deliver", "place_counter", "put_back"):
             return inv == 0 and ms.inv0 != 0
         if m.kind == "plate_soup":
             return is_cooked(inv)
@@ -481,7 +492,7 @@ def valid_actions(env: CoopEnv, i: int) -> list[str]:
     cands = [f"fetch {env.ing_name(k)}" for k in sorted(env.piles)] + ["fetch plate"]
     cands += [f"put in {env.pot_name[p]}" for p in env.pots] if many else ["put in pot"]
     cands += [f"plate soup {env.pot_name[p]}" for p in env.pots] if many else ["plate soup"]
-    cands += ["deliver", "place on counter"]
+    cands += ["deliver", "place on counter", "put back"]
     for c in env.counters:
         if env.cell(c)[1] != 0 and env.in_view(i, c):
             cands.append(f"pick up from counter {c[0]} {c[1]}")

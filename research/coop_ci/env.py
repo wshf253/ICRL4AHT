@@ -129,7 +129,7 @@ def multiset_minus(big: list[int], small: list[int]) -> list[int]:
 @dataclass
 class Event:
     t: int
-    kind: str  # pot_add | counter_place | counter_pick | fetch | plate_soup | deliver
+    kind: str  # pot_add | counter_place | counter_pick | fetch | put_back | plate_soup | deliver
     agent: int
     pos: tuple[int, int]  # cell acted on
     item: str = ""
@@ -412,6 +412,7 @@ class CoopEnv:
             _, st, _, _, _ = self._step_fn(k, prev, acts)
         self.state = st
         self._sync()
+        self._put_back(actions, prev_inv, prev_cells)
         self.t += 1
         score0 = self.score
         new_events = self._detect_events(actions, prev_inv, prev_cells)
@@ -421,6 +422,25 @@ class CoopEnv:
                 if j == e.agent or self.in_view(j, e.pos) or self.in_view(j, self.agent_pos(e.agent)):
                     self.observed[j].append(e)
         return self.score - score0, new_events
+
+    def _put_back(self, actions, prev_inv, prev_cells):
+        """Extension (not in OvercookedV2): interacting with an ingredient pile while holding that
+        ingredient, or with a plate pile while holding an empty plate, puts it back. OvercookedV2
+        has no way to get rid of an item except pots, counters and the serving window, so with
+        every counter full a cook holding an unneeded item was stuck for the rest of the episode."""
+        inv = None
+        for i in range(self.num_agents):
+            if actions.get(i) != A_INTERACT or i not in prev_cells or self.inventory(i) != prev_inv[i]:
+                continue
+            static, held = prev_cells[i][0], prev_inv[i]
+            ok = (static == StaticObject.PLATE_PILE and held == int(DynamicObject.PLATE)) or (
+                StaticObject.is_ingredient_pile(static) and is_ingredient(held)
+                and decode_ingredients(held) == [static - int(StaticObject.INGREDIENT_PILE_BASE)])
+            if ok:
+                inv = (self.state.agents.inventory if inv is None else inv).at[i].set(0)
+        if inv is not None:
+            self.state = self.state.replace(agents=self.state.agents.replace(inventory=inv))
+            self._sync()
 
     def _fwd(self, i):
         x, y = self.agent_pos(i)
@@ -467,6 +487,8 @@ class CoopEnv:
             elif StaticObject.is_ingredient_pile(static) or static == StaticObject.PLATE_PILE:
                 if inv0 == 0 and inv1 != 0:
                     evs.append(Event(self.t, "fetch", i, p, self.item_text(inv1)))
+                elif inv0 != 0 and inv1 == 0:
+                    evs.append(Event(self.t, "put_back", i, p, self.item_text(inv0)))
         for p, s in self._open_soup.items():
             status, contents, _ = self.pot_status(p)
             if s.full_t is None and len(contents) == 3:
@@ -565,6 +587,7 @@ class CoopEnv:
             "counter_pick": f"{who} picked up {e.item} from counter {xy(e.pos)}",
             "fetch": f"{who} took {e.item} from {xy(e.pos)}",
             "plate_soup": f"{who} put the soup from {pot} on a plate",
+            "put_back": f"{who} put {e.item} back on its pile {xy(e.pos)}",
             "deliver": f"{who} delivered {e.item}: {'CORRECT (+20)' if e.correct else 'WRONG (-20)'}",
         }
         return f"[t={e.t}] " + d.get(e.kind, e.kind)

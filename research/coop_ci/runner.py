@@ -30,8 +30,8 @@ from .planner import NOT_INFRA, Executor, parse_macro
 from .policy import Policy, stable_seed
 from .scripted import complies, ego_policy, opportunity, persona_policy, useful_actions
 
-PARTNER_EVENT_KINDS = ("pot_add", "counter_place", "counter_pick", "deliver", "plate_soup")
-NO_DUP = ("wait", "move")
+PARTNER_EVENT_KINDS = ("pot_add", "counter_place", "counter_pick", "deliver", "plate_soup", "put_back")
+NO_DUP = ("wait", "move", "put_back")
 _tls = threading.local()
 _write_lock = threading.Lock()
 

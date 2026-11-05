@@ -382,3 +382,22 @@ def test_gate0_with_an_llm_partner_streams_results_and_reports_partial_runs(tmp_
             f.write(json.dumps(r) + "\n")
     validate.main([str(cfg), "--report-only", out])
     assert "Interim report from 5 rollouts" in open(os.path.join(out, "report_interim.md")).read()
+
+
+def test_put_back_returns_an_item_to_its_pile():
+    env = CoopEnv("shared_1pot").reset(0)
+    env.state = env.state.replace(agents=env.state.agents.replace(inventory=env.state.agents.inventory.at[0].set(4)))
+    env._sync()  # agent 0 holds an onion
+    assert "put back" in valid_actions(env, 0)
+    ex = Executor(env, 0)
+    ex.start(parse_macro("put it back", env))
+    assert ex.ms.status == "running" and ex.ms.target in env.piles[0]
+    for _ in range(10):
+        if ex.idle():
+            break
+        env.step({0: ex.act()})
+        ex.after_step()
+    assert ex.ms.status == "done" and env.inventory(0) == 0
+    assert env.events[-1].kind == "put_back" and "back on its pile" in env.observation_text(1)
+    ex.start(parse_macro("put back", env))
+    assert ex.ms.code == "precheck:no_item"

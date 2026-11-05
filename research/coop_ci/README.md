@@ -118,6 +118,30 @@ conflicting allocations cause more wrong-soup adds (1.5-1.9 vs 0.1-0.3) and dupl
 A partner-blind greedy cook recovers part of the gap, so the headroom for partner information over
 `neutral` is about +5 to +7, except against tomato_supplier on shared_1pot (~0).
 
+## Exp A pilot, first run (6 episodes per cell; mean return per 300 steps)
+
+| condition | shared / onion | shared / tomato | split / onion | split / tomato | mean |
+|---|---|---|---|---|---|
+| A0 standard | 30.0 | 113.3 | 33.3 | 86.7 | 65.8 |
+| A1 structured partner reasoning | 36.7 | 110.0 | 56.7 | 83.3 | 71.7 |
+| A1c generic reasoning | 73.3 | 90.0 | 63.3 | 86.7 | 78.3 |
+| A2 true profile | 106.7 | 113.3 | 76.7 | 73.3 | 92.5 |
+| A3 partner's committed macro | 86.7 | 100.0 | 60.0 | 40.0 | 71.7 |
+| A4 wrong profile | 46.7 | 90.0 | 36.7 | 76.7 | 62.5 |
+| ref complementary / neutral / conflicting | 136.7 / 103.3 / 70.0 | 126.7 / 136.7 / 66.7 | 100 / 83.3 / 66.7 | 110 / 96.7 / 70 | 118.3 / 105 / 68.3 |
+
+A0 does well with tomato_supplier and badly with onion_supplier; the true profile (A2) closes most
+of the onion gap and the wrong one (A4) does not. But the runs were distorted by a dead end that is
+not about the partner: OvercookedV2 has no way to get rid of an item except a pot, a counter or the
+serving window. Once the 10 counters of shared_1pot filled up, a cook holding an unneeded
+ingredient (or a wrong dish) could not do anything else (ready soups waited 116-161 steps in A0
+vs onion_supplier; "no free counter" was the top start failure; one scripted reference was stuck
+with a wrong dish for 378 decisions). Fix: **put back** (an extension, used the same way by every
+cook): interacting with an ingredient's pile (or the plate pile) while holding it returns it.
+Scripted cooks use it only when no counter is free, and serve a wrong dish (-20) when it cannot be
+set aside; scripted Gate 0 results are unchanged. A1/A1c output caps were raised (words x 4 + 160
+tokens, still equal for both) after 53 truncated A1c replies. The pilot now uses 10 episodes per cell.
+
 ## Run on the server
 
 ```bash
