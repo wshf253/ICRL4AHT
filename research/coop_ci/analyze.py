@@ -1,6 +1,9 @@
-"""Summarise a grid run directory (episodes.jsonl).
+"""Summarise a run directory (episodes.jsonl): grid runs (Exp A, M2), stream runs (Exp B), revision runs (Exp C).
 
   python -m research.coop_ci.analyze outputs/coop_ci/<run_dir> [--ref A0]
+  python -m research.coop_ci.analyze <run_dir> --show paired,strata        # only these tables
+  python -m research.coop_ci.analyze <run_dir> --show all --cols all       # everything
+  python -m research.coop_ci.analyze <run_dir> --sections                  # list the tables
 
 Prints markdown tables and writes <run_dir>/analysis/*.csv:
   summary     per condition x layout x persona: return (95% bootstrap CI over episodes), dishes,
@@ -405,105 +408,138 @@ def revision_rows(eps):
     return curve, total, cost, notes
 
 
+SECTIONS = {
+    # Exp C (revision runs)
+    "c_curve": "Exp C: return by episode (mean over streams; the first episodes are the shared prefix)",
+    "c_total": "Exp C: return after the change (sum over the post-prefix episodes, 95% CI over streams)",
+    "c_cost": "Exp C: revision cost = stable minus regime, same rule (paired by stream)",
+    "c_notes": "Exp C: what the note says going into each episode: A's ingredient / the new persona's / neither",
+    # Exp B (stream runs)
+    "phases": "Mean return per phase (95% CI over streams)",
+    "paired": "Paired difference vs the reference condition (grid: matched episodes; streams: per stream)",
+    "strata": "Paired difference per stream, split by whether partner A is the hard (first-listed) supplier",
+    "curve": "Return by episode (mean over streams)",
+    "early": "Paired difference per stream, return in the first --early steps only",
+    "memory": "Memory size and update status",
+    "notes": "Partner notes: does the note name the partner's ingredient? (+ notes.md)",
+    # any run
+    "listed": "Return by whether the partner supplies the ingredient listed first in the prompts",
+    "summary": "Per condition x layout x persona (columns: --cols)",
+    "failures": "Failure codes per role",
+    "start_failures": "Actions that could not start (from traces)",
+    "compliance": "Persona compliance misses (from traces)",
+}
+DEFAULT_SHOW = {"revision": ["c_curve", "c_total", "c_cost", "c_notes"],
+                "stream": ["phases", "paired", "early", "memory", "notes"],
+                "grid": ["paired", "listed", "summary"]}
+ALIASES = {"diagnostics": ["failures", "start_failures", "compliance"], "expc": DEFAULT_SHOW["revision"],
+           "expb": ["phases", "paired", "strata", "curve", "early", "memory", "notes"]}
+DEFAULT_COLS = ["condition", "layout", "persona", "n", "return", "correct", "wrong", "compliance",
+                "infra_after_retry_ego/partner", "ready_idle", "onion_share_of_fetches_ego/partner",
+                "calls_ego/partner"]
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="Summarise a run directory. Every table is written to <run_dir>/analysis/*.csv; "
+                    "--show picks which ones are printed.")
     ap.add_argument("run_dir")
-    ap.add_argument("--ref", help="reference condition for paired differences")
-    ap.add_argument("--early", type=int, default=100, help="stream runs: also compare the return in the first N steps")
+    ap.add_argument("--ref", help="reference condition for paired differences (streams: default B0)")
+    ap.add_argument("--early", type=int, default=100, help="stream runs: the early window, in steps")
+    ap.add_argument("--show", help="comma-separated sections to print (or 'all'; aliases: expb, expc, diagnostics). "
+                                   "Default depends on the run type; --sections lists them")
+    ap.add_argument("--cols", help="summary columns to print, comma-separated, or 'all' (default: a compact set)")
+    ap.add_argument("--sections", action="store_true", help="list the sections and exit")
     a = ap.parse_args(argv)
+    if a.sections:
+        for k, v in SECTIONS.items():
+            print(f"{k:15s} {v}")
+        print("aliases: " + "; ".join(f"{k} = {','.join(v)}" for k, v in ALIASES.items()))
+        return None
     eps = [json.loads(l) for l in open(os.path.join(a.run_dir, "episodes.jsonl")) if l.strip()]
     fill_from_traces(eps, a.run_dir)
     out = os.path.join(a.run_dir, "analysis")
     os.makedirs(out, exist_ok=True)
-    if any(r.get("regime") for r in eps):
+    kind = "revision" if any(r.get("regime") for r in eps) else (
+        "stream" if any(r.get("mode") == "stream" for r in eps) else "grid")
+    if not a.show:
+        show = DEFAULT_SHOW[kind]
+    elif a.show == "all":
+        show = list(SECTIONS)
+    else:
+        show = []
+        for x in a.show.split(","):
+            show += ALIASES.get(x.strip(), [x.strip()])
+        unknown = [x for x in show if x not in SECTIONS]
+        if unknown:
+            ap.error(f"unknown sections {unknown}; use --sections")
+    tables: dict = {}   # section -> list of (title, rows) or text
+
+    def add(sec, name, title, rows):
+        if rows:
+            write_csv(os.path.join(out, f"{name}.csv"), rows)
+            tables.setdefault(sec, []).append((title, rows))
+
+    if kind == "revision":
         curve, total, cost, notes = revision_rows(eps)
-        for name, data in (("revision_curve", curve), ("revision_total", total), ("revision_cost", cost),
-                           ("revision_notes", notes)):
-            write_csv(os.path.join(out, f"{name}.csv"), data)
-        print("## Exp C: return by episode (mean over streams; E1-E3 = shared prefix)\n")
-        print(md(curve, list(curve[0].keys())) + "\n")
-        print("## Return after the change (sum over the post-prefix episodes, 95% CI over streams)\n")
-        print(md(total, list(total[0].keys())) + "\n")
-        if cost:
-            print("## Revision cost: stable minus regime, same rule (paired by stream)\n")
-            print(md(cost, list(cost[0].keys())) + "\n")
-        print("## What the note says going into each episode: A's ingredient / the new persona's / neither "
-              "(keyword heuristic)\n")
-        print(md(notes, list(notes[0].keys())) + "\n")
-    elif any(r.get("mode") == "stream" for r in eps):
+        add("c_curve", "revision_curve", SECTIONS["c_curve"], curve)
+        add("c_total", "revision_total", SECTIONS["c_total"], total)
+        add("c_cost", "revision_cost", SECTIONS["c_cost"], cost)
+        add("c_notes", "revision_notes", SECTIONS["c_notes"] + " (keyword heuristic)", notes)
+    elif kind == "stream":
         ref = a.ref or "B0"
         rows, prow, curve, mem = stream_rows(eps, ref)
-        for name, data in (("stream_phases", rows), ("stream_paired", prow), ("stream_curve", curve), ("memory", mem)):
-            write_csv(os.path.join(out, f"{name}.csv"), data)
-        print("## Mean return per phase (95% CI over streams)\n")
-        print(md(rows, list(rows[0].keys())))
-        print("\nPhases: " + "; ".join(f"{k} = {v}" for k, v in READOUT.items()) + "\n")
-        if prow:
-            print(f"## Paired difference vs {ref} (per stream)\n")
-            print(md(prow, list(prow[0].keys())) + "\n")
-        # Stratified by partner A: is A the supplier of the first-listed ingredient (the hard partner)?
+        add("phases", "stream_phases", SECTIONS["phases"], rows)
+        add("paired", "stream_paired", f"Paired difference vs {ref} (per stream)", prow)
         hard = {r["stream"]: first_listed(r) == "first" for r in eps if r.get("partner_role") == "A" and r["k"] == 0}
         for label, keep in (("A is the hard partner (first-listed supplier)", True), ("A is the other partner", False)):
             sub = [r for r in eps if hard.get(r["stream"]) is keep]
             if sub:
                 _, sp, _, _ = stream_rows(sub, ref)
-                write_csv(os.path.join(out, f"stream_paired_{'hardA' if keep else 'easyA'}.csv"), sp)
-                print(f"## Paired difference vs {ref}, streams where {label} ({len({r['stream'] for r in sub})} streams)\n")
-                print(md(sp, list(sp[0].keys())) + "\n")
-        print("## Return by episode (mean over streams)\n")
-        print(md(curve, list(curve[0].keys())) + "\n")
-        # Memory should matter most early in an episode, before the partner can be read from play.
-        _, eprow, ecurve, _ = stream_rows(eps, ref, value=lambda r: early_return(r, a.early))
-        write_csv(os.path.join(out, "stream_paired_early.csv"), eprow)
-        if eprow:
-            print(f"## Paired difference vs {ref}, return in the first {a.early} steps only\n")
-            print(md(eprow, list(eprow[0].keys())) + "\n")
-        print("## Memory\n")
-        print(md(mem, list(mem[0].keys())) + "\n")
-        pref = {"onion_supplier": "onion", "tomato_supplier": "tomato"}
-        acc = note_accuracy_rows(eps, pref)
-        if acc:
-            write_csv(os.path.join(out, "note_accuracy.csv"), acc)
-            print("## Partner notes: does the note name the partner's ingredient? (keyword heuristic)\n")
-            print(md(acc, list(acc[0].keys())) + "\n")
-        notes = note_samples(eps)
+                add("strata", f"stream_paired_{'hardA' if keep else 'easyA'}",
+                    f"Paired difference vs {ref}, streams where {label} ({len({r['stream'] for r in sub})} streams)", sp)
+        add("curve", "stream_curve", SECTIONS["curve"], curve)
+        _, eprow, _, _ = stream_rows(eps, ref, value=lambda r: early_return(r, a.early))
+        add("early", "stream_paired_early", f"Paired difference vs {ref}, return in the first {a.early} steps only", eprow)
+        add("memory", "memory", SECTIONS["memory"], mem)
+        acc = note_accuracy_rows(eps, {"onion_supplier": "onion", "tomato_supplier": "tomato"})
+        add("notes", "note_accuracy", SECTIONS["notes"].split(" (+")[0] + " (keyword heuristic)", acc)
         with open(os.path.join(out, "notes.md"), "w") as f:
-            f.write(notes)
-        print(f"Final notes per stream (what the ego carried into the return / last B episode): {out}/notes.md\n")
+            f.write(note_samples(eps))
+        tables.setdefault("notes", []).append(
+            (None, f"Final notes per stream (what the ego carried into the return / last B episode): {out}/notes.md"))
+    else:
+        if a.ref:
+            add("paired", "paired", f"Paired return difference vs {a.ref}", paired_rows(eps, a.ref))
     if any(first_listed(r) != "-" for r in eps):
-        lr = listed_rows(eps)
-        write_csv(os.path.join(out, "listed_first.csv"), lr)
-        print("## Return by whether the partner supplies the ingredient listed first in the prompts\n")
-        print(md(lr, list(lr[0].keys())) + "\n")
+        add("listed", "listed_first", SECTIONS["listed"], listed_rows(eps))
     summ = summary_rows(eps)
     write_csv(os.path.join(out, "summary.csv"), summ)
-    print("## Summary\n")
-    print(md(summ, list(summ[0].keys())))
-    print(f"\n`failed_attempts` = share of replies whose action could not start or failed (each retry counts). "
-          f"`infra_after_retry` = share of decision points still failed after the 2-attempt retry policy "
-          f"(forced wait, timeout, target gone, deadlock). `!` = above {INFRA_FLAG:.0%} (flagged, not dropped; "
-          f"runs without after-retry numbers are flagged on failed attempts).\n")
-    if a.ref and not any(r.get("mode") == "stream" for r in eps):
-        pr = paired_rows(eps, a.ref)
-        write_csv(os.path.join(out, "paired.csv"), pr)
-        if pr:
-            print(f"## Paired return difference vs {a.ref}\n")
-            print(md(pr, list(pr[0].keys())) + "\n")
-    fr = failure_rows(eps)
-    write_csv(os.path.join(out, "failures.csv"), fr)
-    print("## Failure codes\n")
-    print(md(fr, ["condition", "role", "codes"]))
-    traces = read_traces(a.run_dir, eps)
-    sf = start_failure_rows(traces)
-    write_csv(os.path.join(out, "start_failures.csv"), sf)
-    if sf:
-        print("\n## Actions that could not start (top)\n")
-        print(md(sf, list(sf[0].keys())))
-    cm = compliance_miss_rows(traces)
-    write_csv(os.path.join(out, "compliance_misses.csv"), cm)
-    if cm:
-        print("\n## Persona compliance: what the partner chose when its tendency applied but it did not follow it\n")
-        print(md(cm, list(cm[0].keys())))
+    cols = list(summ[0].keys()) if a.cols == "all" else (
+        [c for c in a.cols.split(",") if c in summ[0]] if a.cols else [c for c in DEFAULT_COLS if c in summ[0]])
+    tables["summary"] = [("Summary (all columns: --cols all; full table in analysis/summary.csv)",
+                          [{c: r[c] for c in cols} for r in summ])]
+    add("failures", "failures", SECTIONS["failures"], failure_rows(eps))
+    if {"start_failures", "compliance"} & set(show):
+        traces = read_traces(a.run_dir, eps)
+        add("start_failures", "start_failures", SECTIONS["start_failures"], start_failure_rows(traces))
+        add("compliance", "compliance_misses", SECTIONS["compliance"], compliance_miss_rows(traces))
+
+    for sec in show:
+        for title, rows in tables.get(sec, []):
+            if title is None:
+                print(rows + "\n")
+                continue
+            print(f"## {title}\n")
+            print(md(rows, list(rows[0].keys())) + "\n")
+            if sec == "phases":
+                print("Phases: " + "; ".join(f"{k} = {v}" for k, v in READOUT.items()) + "\n")
+            if sec == "summary":
+                print("`infra_after_retry` = share of decision points still failed after the 2-attempt retry "
+                      f"(`!` above {INFRA_FLAG:.0%}).\n")
+    hidden = [k for k in tables if k not in show]
+    if hidden:
+        print(f"(not shown: {', '.join(hidden)}; --show <section> or --show all; CSVs in {out})")
     return summ
 
 
