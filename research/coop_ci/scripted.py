@@ -163,6 +163,8 @@ def ego_policy(personas: dict, kind: str, persona: Optional[str] = None) -> Scri
     """complementary / conflicting (to `persona`), neutral, or `as:<persona>` (that persona's jobs)."""
     if kind == "neutral":
         return ScriptedCook(NEUTRAL_JOBS, ignore_partner=True, name="neutral")
+    if kind == "no_plating":  # audit helper: fills pots but never fetches a plate (the partner must plate)
+        return ScriptedCook(["fetch_missing"], name="no_plating")
     if kind == "complementary":
         comp = personas[persona]["complement"]
         p = persona_policy(personas, comp)

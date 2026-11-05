@@ -14,4 +14,7 @@ cells:
   - {layout: shared_2pot, personas: [loader, server]}
 conditions:
   - {name: neutral_ego, ego: neutral}
+  # The neutral ego always has a plate out, so the persona's "plate it when a soup is ready" clause
+  # never comes up; this ego fills pots but never fetches a plate, so the partner has to.
+  - {name: no_plating_ego, ego: no_plating}
 episodes_per_cell: 10

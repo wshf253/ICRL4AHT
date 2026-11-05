@@ -423,3 +423,10 @@ def test_side_checks_for_plating_and_over_fetching():
     # Scripted cooks fetch a plate while the soup cooks, so a ready soup rarely waits for one.
     plate = [v for k, v in cl.items() if k.endswith(":plate_ready")]
     assert not plate or sum(v["hit"] for v in plate) / sum(v["n"] for v in plate) >= 0.9
+
+
+def test_no_plating_ego_leaves_plating_to_the_partner():
+    env, epi = scripted_episode("shared_1pot", "onion_supplier", kind="no_plating", seed=2)
+    m = epi.metrics()
+    assert m["n_correct"] >= 3  # the scripted twin plates (it fetches a plate while the soup cooks)
+    assert not any(e.kind == "fetch" and e.item == "an empty plate" and e.agent == epi.ego for e in env.events)
