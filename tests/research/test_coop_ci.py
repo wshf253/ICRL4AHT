@@ -401,3 +401,16 @@ def test_put_back_returns_an_item_to_its_pile():
     assert env.events[-1].kind == "put_back" and "back on its pile" in env.observation_text(1)
     ex.start(parse_macro("put back", env))
     assert ex.ms.code == "precheck:no_item"
+
+
+def test_analyze_recovers_placements_from_traces_of_older_runs(tmp_path):
+    from research.coop_ci import analyze
+    rec = {"episode_id": "A0|shared_1pot|onion_supplier|0", "ego_seat": 1, "waste": {"counter_items_end": 2}}
+    os.makedirs(tmp_path / "traces")
+    with open(tmp_path / "traces" / "A0__shared_1pot__onion_supplier__0.jsonl", "w") as f:
+        for agent, kind in ((1, "counter_place"), (0, "counter_place"), (0, "put_back"), (1, "fetch")):
+            f.write(json.dumps({"type": "event", "kind": kind, "agent": agent}) + "\n")
+    analyze.fill_from_traces([rec], str(tmp_path))
+    assert rec["waste"]["counter_places"] == {"ego": 1, "partner": 1}
+    assert rec["waste"]["put_backs"] == {"ego": 0, "partner": 1}
+    assert analyze.mean_known([None, None]) is None

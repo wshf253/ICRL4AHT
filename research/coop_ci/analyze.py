@@ -37,6 +37,32 @@ def md(rows, cols):
     return "\n".join(out)
 
 
+def mean_known(xs):
+    """Mean over the episodes that recorded the field; None ('-') when none did (older runs)."""
+    xs = [x for x in xs if x is not None]
+    return mean(xs) if xs else None
+
+
+def fill_from_traces(eps, run_dir):
+    """Counter placements and put-backs per cook, recovered from trace events for runs recorded
+    before these fields existed (ready_both_hold needs per-step state and cannot be recovered)."""
+    d = os.path.join(run_dir, "traces")
+    for r in eps:
+        w = r["waste"]
+        if "counter_places" in w:
+            continue
+        p = os.path.join(d, r["episode_id"].replace("|", "__") + ".jsonl")
+        if not os.path.exists(p):
+            continue
+        cnt = {k: {"ego": 0, "partner": 0} for k in ("counter_places", "put_backs")}
+        for line in open(p):
+            e = json.loads(line)
+            if e.get("type") == "event" and e["kind"] in ("counter_place", "put_back"):
+                role = "ego" if e["agent"] == r["ego_seat"] else "partner"
+                cnt["counter_places" if e["kind"] == "counter_place" else "put_backs"][role] += 1
+        w.update(cnt)
+
+
 def summary_rows(eps):
     g = defaultdict(list)
     for r in eps:
@@ -68,14 +94,14 @@ def summary_rows(eps):
             "infra_after_retry_ego/partner": f"{fmt(ae, 3)}/{fmt(ap, 3)}{flag}",
             "ego_idle_useful": fmt(mean(r["ego_idle_while_useful"] for r in rs)),
             "ready_idle": fmt(mean(r["ready_idle_steps"] for r in rs)),
-            "ready_both_hold": fmt(mean(r.get("ready_both_hold_steps", float("nan")) for r in rs)),
+            "ready_both_hold": fmt(mean_known(r.get("ready_both_hold_steps") for r in rs)),
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
             "blocking": fmt(mean(r["blocking_rate"] for r in rs), 3),
             "dup_ing": fmt(mean(r["waste"]["dup_ingredient"] for r in rs), 2),
             "counters_end": fmt(mean(r["waste"]["counter_items_end"] for r in rs), 1),
-            "placed/put_back_ego": "/".join(fmt(mean(r["waste"].get(k, {}).get("ego", 0) for r in rs), 1)
+            "placed/put_back_ego": "/".join(fmt(mean_known(r["waste"].get(k, {}).get("ego") for r in rs), 1)
                                             for k in ("counter_places", "put_backs")),
-            "placed/put_back_partner": "/".join(fmt(mean(r["waste"].get(k, {}).get("partner", 0) for r in rs), 1)
+            "placed/put_back_partner": "/".join(fmt(mean_known(r["waste"].get(k, {}).get("partner") for r in rs), 1)
                                                 for k in ("counter_places", "put_backs")),
             "wrong_adds": fmt(mean(r["waste"]["wrong_soup_add"]["ego"] + r["waste"]["wrong_soup_add"]["partner"] for r in rs), 2),
             "calls_ego/partner": f"{fmt(mean(r['usage']['ego']['calls'] for r in rs), 0)}/{fmt(mean(r['usage']['partner']['calls'] for r in rs), 0)}",
@@ -173,6 +199,7 @@ def main(argv=None):
     ap.add_argument("--ref", help="reference condition for paired differences")
     a = ap.parse_args(argv)
     eps = [json.loads(l) for l in open(os.path.join(a.run_dir, "episodes.jsonl")) if l.strip()]
+    fill_from_traces(eps, a.run_dir)
     out = os.path.join(a.run_dir, "analysis")
     os.makedirs(out, exist_ok=True)
     summ = summary_rows(eps)
