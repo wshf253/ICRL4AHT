@@ -16,7 +16,7 @@ import json
 import os
 import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Optional
@@ -28,7 +28,7 @@ from .env import A_STAY, ACTION_VEC, MOVE_ACTIONS, CoopEnv, decode_ingredients, 
 from .llm import Backend, Usage, build_backend
 from .planner import NOT_INFRA, Executor, parse_macro
 from .policy import Policy, stable_seed
-from .scripted import complies, ego_policy, opportunity, persona_policy, useful_actions
+from .scripted import complies, ego_policy, opportunity, persona_policy, side_checks, useful_actions
 
 PARTNER_EVENT_KINDS = ("pot_add", "counter_place", "counter_pick", "deliver", "plate_soup", "put_back")
 NO_DUP = ("wait", "move", "put_back")
@@ -91,7 +91,8 @@ def _zero_counts() -> dict:
     return {"decisions": Counter(), "parse_fail": Counter(), "fallback": Counter(), "fail": {0: Counter(), 1: Counter()},
             "wait_steps": Counter(), "ego_idle_useful": 0, "blocking_steps": 0, "dup_subtask_steps": 0,
             "dup_ingredient": 0, "surplus_plate": 0, "wrong_soup_add": Counter(), "comp_opp": 0, "comp_match": 0,
-            "steps": 0, "decision_points": Counter(), "unrecovered": Counter(), "ready_both_hold_steps": 0}
+            "steps": 0, "decision_points": Counter(), "unrecovered": Counter(), "ready_both_hold_steps": 0,
+            "clauses": defaultdict(lambda: [0, 0])}
 
 
 class Episode:
@@ -162,6 +163,13 @@ class Episode:
         c["parse_fail"][i] += int(not d.parse_ok)
         c["fallback"][i] += int(d.fallback)
         m = parse_macro(d.action, env) or parse_macro("wait 1", env)
+        checks = {}
+        for name, items in side_checks(env, i, self.persona if i == self.partner else None).items():
+            hit = complies(env, m, items)
+            checks[name] = hit
+            role = "ego" if i == self.ego else "partner"
+            c["clauses"][(role, name)][0] += 1
+            c["clauses"][(role, name)][1] += int(hit)
         allowed, ok = None, None
         if i == self.partner:
             allowed = opportunity(env, i, self.persona)
@@ -179,6 +187,8 @@ class Episode:
                    "holding": env.item_text(env.inventory(i))}
             if allowed is not None:  # evaluator-only compliance audit
                 rec["opportunity"] = {"tendency": sorted(allowed), "complied": ok}
+            if checks:
+                rec["checks"] = checks
             if d.private:
                 rec["private"] = d.private  # trace only; never shown to the other cook
             if ms.status == "failed":
@@ -329,6 +339,10 @@ class Episode:
                                     for r, i in (("ego", ego), ("partner", par))}},
             "compliance": {"opportunities": c["comp_opp"], "matches": c["comp_match"],
                            "rate": round(c["comp_match"] / c["comp_opp"], 4) if c["comp_opp"] else None},
+            # plate_ready: share of decisions with a ready, unplated soup and free hands where the cook
+            # went for a plate; over_fetch: share of decisions where the persona's ingredient was not
+            # needed but the partner fetched it anyway.
+            "clauses": {f"{role}:{name}": {"n": v[0], "hit": v[1]} for (role, name), v in sorted(c["clauses"].items())},
             "decisions": dec, "failures": fails,
             "parse_fail": {"ego": c["parse_fail"][ego], "partner": c["parse_fail"][par]},
             "fallback": {"ego": c["fallback"][ego], "partner": c["fallback"][par]},

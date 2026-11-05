@@ -201,6 +201,24 @@ def opportunity(env: CoopEnv, i: int, persona: dict) -> Optional[set]:
     return None
 
 
+def side_checks(env: CoopEnv, i: int, persona: Optional[dict]) -> dict:
+    """Extra audit clauses at a decision of cook i (hands empty), beyond the main tendency:
+      plate_ready  a soup is ready and no free plate is out -> fetching a plate follows it
+                   (part of every F1 persona text; measured for both cooks)
+      over_fetch   F1 only: the preferred ingredient is NOT needed -> fetching it anyway is a violation
+    Returns {clause: allowed items}; a clause is absent when it does not apply."""
+    if env.inventory(i) != 0:
+        return {}
+    out = {}
+    if _plate_demand(env, False) > _plates_out(env, i, False):
+        out["plate_ready"] = {"plate"}
+    if persona and persona.get("opportunity") == "needs_preferred":
+        pref = persona["scripted"]["preferred"]
+        if needs(env, i)[env.ingredient_names.index(pref)] == 0:
+            out["over_fetch"] = {pref}   # here "matching" means violating
+    return out
+
+
 def complies(env: CoopEnv, macro, allowed: set) -> bool:
     return acquires(env, macro) in allowed
 

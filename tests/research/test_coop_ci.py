@@ -414,3 +414,12 @@ def test_analyze_recovers_placements_from_traces_of_older_runs(tmp_path):
     assert rec["waste"]["counter_places"] == {"ego": 1, "partner": 1}
     assert rec["waste"]["put_backs"] == {"ego": 0, "partner": 1}
     assert analyze.mean_known([None, None]) is None
+
+
+def test_side_checks_for_plating_and_over_fetching():
+    env, epi = scripted_episode("shared_1pot", "onion_supplier", seed=4)
+    cl = epi.metrics()["clauses"]
+    assert cl["partner:over_fetch"]["n"] > 0 and cl["partner:over_fetch"]["hit"] == 0  # the twin never over-fetches
+    # Scripted cooks fetch a plate while the soup cooks, so a ready soup rarely waits for one.
+    plate = [v for k, v in cl.items() if k.endswith(":plate_ready")]
+    assert not plate or sum(v["hit"] for v in plate) / sum(v["n"] for v in plate) >= 0.9

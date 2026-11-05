@@ -43,6 +43,12 @@ def mean_known(xs):
     return mean(xs) if xs else None
 
 
+def clause_rate(rs, key):
+    n = sum(r.get("clauses", {}).get(key, {}).get("n", 0) for r in rs)
+    h = sum(r.get("clauses", {}).get(key, {}).get("hit", 0) for r in rs)
+    return h / n if n else None
+
+
 def fill_from_traces(eps, run_dir):
     """Counter placements and put-backs per cook, recovered from trace events for runs recorded
     before these fields existed (ready_both_hold needs per-step state and cannot be recovered)."""
@@ -98,6 +104,8 @@ def summary_rows(eps):
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
             "blocking": fmt(mean(r["blocking_rate"] for r in rs), 3),
             "dup_ing": fmt(mean(r["waste"]["dup_ingredient"] for r in rs), 2),
+            "plate_when_ready_ego/partner": "/".join(fmt(clause_rate(rs, f"{role}:plate_ready"), 2) for role in ("ego", "partner")),
+            "over_fetch_partner": fmt(clause_rate(rs, "partner:over_fetch"), 2),
             "counters_end": fmt(mean(r["waste"]["counter_items_end"] for r in rs), 1),
             "placed/put_back_ego": "/".join(fmt(mean_known(r["waste"].get(k, {}).get("ego") for r in rs), 1)
                                             for k in ("counter_places", "put_backs")),
