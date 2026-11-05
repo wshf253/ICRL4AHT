@@ -229,6 +229,21 @@ partner's ingredient (keyword heuristic, `note_accuracy.csv`); `counterbalance_d
 first in half the streams (crossed with which persona is A), to be switched on if the listing-order check
 confirms a position bias.
 
+### Listing-order check (`expA_order_check.yaml`, A0 return, 10 episodes per cell)
+
+| prompts list | vs onion_supplier | vs tomato_supplier |
+|---|---|---|
+| onion first (default) | **34** | 96 |
+| tomato first | 110 | **24** |
+
+The asymmetry is a position bias of Qwen: the LLM partner over-plays the persona of whichever
+ingredient is listed first (over-fetching it when no pot needs it: 0.72 vs 0.41 with onion first,
+0.51 vs 0.34 with tomato first), keeps its hands full and never plates, and the episode collapses into
+hold-and-wait. The ego's own split stays complementary either way. The true profile (A2) helps exactly
+in that cell (+42 / +54) and much less in the other (+12 / -2). All experiment configs now set
+`counterbalance_display: true` (grid: episode pairs; streams: stream pairs, crossed with which persona is
+A), and `analyze` reports the return by whether the partner supplies the first-listed ingredient.
+
 ## Run on the server
 
 ```bash

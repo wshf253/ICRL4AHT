@@ -81,10 +81,39 @@ def onion_share(rs, role):
     return o / (o + t) if o + t else None
 
 
+PREF = {"onion_supplier": 0, "tomato_supplier": 1}
+
+
+def first_listed(r) -> str:
+    """'first' if the partner supplies the ingredient listed first in the prompts, else 'second'
+    (Qwen over-plays the first-listed supplier, see expA_order_check)."""
+    order = (r.get("env") or {}).get("display_order") or [0, 1]
+    if r["persona"] not in PREF:
+        return "-"
+    return "first" if order[0] == PREF[r["persona"]] else "second"
+
+
+def listed_rows(eps):
+    """Return by condition x whether the partner supplies the first-listed ingredient."""
+    g = defaultdict(list)
+    for r in eps:
+        g[(r["condition"], first_listed(r))].append(r["return"])
+    rows = []
+    for c in sorted({k[0] for k in g}):
+        row = {"condition": c}
+        for w in ("first", "second"):
+            v = g.get((c, w), [])
+            lo, hi = boot_ci(v)
+            row[f"partner supplies the {w}-listed ingredient"] = f"{fmt(mean(v) if v else None)} [{fmt(lo)}, {fmt(hi)}] (n={len(v)})"
+        rows.append(row)
+    return rows
+
+
 def summary_rows(eps):
     g = defaultdict(list)
     for r in eps:
-        g[(r["condition"], r["layout"], r["persona"])].append(r)
+        lay = r["layout"] + (" (tomato first)" if (r.get("env") or {}).get("display_order") == [1, 0] else "")
+        g[(r["condition"], lay, r["persona"])].append(r)
     rows = []
     for (c, lay, p), rs in sorted(g.items()):
         ret = [r["return"] for r in rs]
@@ -373,6 +402,11 @@ def main(argv=None):
         with open(os.path.join(out, "notes.md"), "w") as f:
             f.write(notes)
         print(f"Final notes per stream (what the ego carried into the return / last B episode): {out}/notes.md\n")
+    if any(first_listed(r) != "-" for r in eps):
+        lr = listed_rows(eps)
+        write_csv(os.path.join(out, "listed_first.csv"), lr)
+        print("## Return by whether the partner supplies the ingredient listed first in the prompts\n")
+        print(md(lr, list(lr[0].keys())) + "\n")
     summ = summary_rows(eps)
     write_csv(os.path.join(out, "summary.csv"), summ)
     print("## Summary\n")

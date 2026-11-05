@@ -387,6 +387,10 @@ def run_episode(cfg: dict, cell: dict, cond: dict, persona_id: str, ep: int, bac
                 out_dir: str) -> dict:
     t_start = time.time()
     env_cfg = deep_update(cfg.get("env", {}), {"layout": cell["layout"], **cell.get("env", {})})
+    if cfg.get("counterbalance_display") and (ep // 2) % 2:
+        # Episodes 2-3, 6-7, ... list tomato first everywhere (crossed with the seat, which alternates
+        # every episode): Qwen over-plays the persona of whichever ingredient is listed first.
+        env_cfg["display_order"] = [1, 0]
     env = get_env(env_cfg)
     seed = stable_seed(cfg.get("seed", 0), "ep", ep)
     env.reset(seed)

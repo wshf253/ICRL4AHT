@@ -8,6 +8,9 @@
 name: expA_pilot
 seed: 0
 env: {max_steps: 300}
+# Qwen over-plays the persona of whichever ingredient is listed first (expA_order_check: A0 vs the
+# first-listed supplier 34 / 24, vs the other 96 / 110). Half the episodes/streams list tomato first.
+counterbalance_display: true
 backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
 cells:
   - {layout: shared_1pot, personas: [onion_supplier, tomato_supplier]}

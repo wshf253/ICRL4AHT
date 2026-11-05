@@ -485,3 +485,16 @@ def test_note_verdict_heuristic():
     assert note_verdict(note) == "onion"
     assert note_verdict("Partner P-1:\n- Brings tomatoes first (when: always; for: E1; against: -; confidence 0.6)") == "tomato"
     assert note_verdict("Partner P-1:\n- Waits a lot") == "none"
+
+
+def test_counterbalanced_display_alternates_in_grid_and_stream_runs(tmp_path):
+    from research.coop_ci import analyze, run
+    out = run.main([os.path.join(CONFIG_DIR, "expA_pilot.yaml"), "--ego-backend", "mock", "--partner-backend", "scripted",
+                    "--episodes", "4", "--max-steps", "20", "--conditions", "A0", "--layouts", "shared_1pot",
+                    "--workers", "4", "--out", str(tmp_path)])
+    eps = [json.loads(l) for l in open(os.path.join(out, "episodes.jsonl"))]
+    orders = {r["ep"]: r["env"].get("display_order") for r in eps}
+    assert orders[0] is None and orders[1] is None and orders[2] == [1, 0] and orders[3] == [1, 0]
+    assert {analyze.first_listed(r) for r in eps} == {"first", "second"}
+    analyze.main([out])
+    assert os.path.exists(os.path.join(out, "analysis", "listed_first.csv"))
