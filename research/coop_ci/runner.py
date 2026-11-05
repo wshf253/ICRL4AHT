@@ -402,8 +402,9 @@ def run_episode(cfg: dict, cell: dict, cond: dict, persona_id: str, ep: int, bac
         epi.run(env.max_steps)
     finally:
         epi.close()
-    eid = f"{cond['name']}|{cell['layout']}|{persona_id}|{ep}"
-    rec = {"episode_id": eid, "condition": cond["name"], "layout": cell["layout"], "persona": persona_id,
+    label = cell.get("name", cell["layout"])  # a cell can name itself (e.g. the same map with another display order)
+    eid = f"{cond['name']}|{label}|{persona_id}|{ep}"
+    rec = {"episode_id": eid, "condition": cond["name"], "layout": label, "map": cell["layout"], "persona": persona_id,
            "family": personas[persona_id].get("family"), "partner_id": pid_token, "ep": ep, "seed": seed,
            "ego_seat": seat, "ego_policy": ego.name, "partner_policy": partner.name, "env": env_cfg,
            **epi.metrics(), "soups": soup_records(env, seat),
@@ -439,7 +440,7 @@ def grid_units(cfg: dict) -> list:
         for cond in cfg["conditions"]:
             for pid in cell["personas"]:
                 for ep in range(cfg["episodes_per_cell"]):
-                    units.append((cell, cond, pid, ep, f"{cond['name']}|{cell['layout']}|{pid}|{ep}"))
+                    units.append((cell, cond, pid, ep, f"{cond['name']}|{cell.get('name', cell['layout'])}|{pid}|{ep}"))
     return units
 
 

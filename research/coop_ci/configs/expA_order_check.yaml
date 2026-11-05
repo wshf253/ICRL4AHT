@@ -1,0 +1,19 @@
+# Why does partner information (and memory) matter against onion_supplier but not tomato_supplier?
+# Hypothesis: a listing-order bias. Every text lists onion first (menu "onion+onion+tomato", legend,
+# pot contents, "fetch onion | fetch tomato"), so both Qwen cooks lean towards onions. Against a tomato
+# supplier that default happens to be complementary; against an onion supplier it collides.
+# Test: the same map and seeds with tomato listed first everywhere (display_order [1, 0]; no rule changes).
+# If the asymmetry flips with the listing order, it is a position bias and every experiment should
+# counterbalance the display order; if it does not, it is about the words themselves.
+name: expA_order_check
+seed: 0
+env: {max_steps: 300}
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+cells:
+  - {name: shared_1pot, layout: shared_1pot, personas: [onion_supplier, tomato_supplier]}
+  - {name: shared_1pot_tomato_first, layout: shared_1pot, env: {display_order: [1, 0]},
+     personas: [onion_supplier, tomato_supplier]}
+conditions:
+  - {name: A0, condition: A0}
+  - {name: A2, condition: A2}
+episodes_per_cell: 10

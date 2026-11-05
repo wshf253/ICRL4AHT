@@ -55,18 +55,30 @@ def fill_from_traces(eps, run_dir):
     d = os.path.join(run_dir, "traces")
     for r in eps:
         w = r["waste"]
-        if "counter_places" in w:
-            continue
         p = os.path.join(d, r["episode_id"].replace("|", "__") + ".jsonl")
         if not os.path.exists(p):
             continue
         cnt = {k: {"ego": 0, "partner": 0} for k in ("counter_places", "put_backs")}
+        fetch = {"ego": Counter(), "partner": Counter()}
         for line in open(p):
             e = json.loads(line)
-            if e.get("type") == "event" and e["kind"] in ("counter_place", "put_back"):
-                role = "ego" if e["agent"] == r["ego_seat"] else "partner"
+            if e.get("type") != "event":
+                continue
+            role = "ego" if e["agent"] == r["ego_seat"] else "partner"
+            if e["kind"] in ("counter_place", "put_back"):
                 cnt["counter_places" if e["kind"] == "counter_place" else "put_backs"][role] += 1
-        w.update(cnt)
+            elif e["kind"] == "fetch":
+                fetch[role][(e.get("item") or "?").split()[-1]] += 1   # "an onion" -> onion, "an empty plate" -> plate
+        if "counter_places" not in w:
+            w.update(cnt)
+        r["fetches"] = fetch
+
+
+def onion_share(rs, role):
+    """Share of onions among the ingredients a cook took from the piles."""
+    o = sum(r.get("fetches", {}).get(role, {}).get("onion", 0) for r in rs)
+    t = sum(r.get("fetches", {}).get(role, {}).get("tomato", 0) for r in rs)
+    return o / (o + t) if o + t else None
 
 
 def summary_rows(eps):
@@ -104,6 +116,7 @@ def summary_rows(eps):
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
             "blocking": fmt(mean(r["blocking_rate"] for r in rs), 3),
             "dup_ing": fmt(mean(r["waste"]["dup_ingredient"] for r in rs), 2),
+            "onion_share_of_fetches_ego/partner": "/".join(fmt(onion_share(rs, role), 2) for role in ("ego", "partner")),
             "plate_when_ready_ego/partner": "/".join(fmt(clause_rate(rs, f"{role}:plate_ready"), 2) for role in ("ego", "partner")),
             "over_fetch_partner": fmt(clause_rate(rs, "partner:over_fetch"), 2),
             "counters_end": fmt(mean(r["waste"]["counter_items_end"] for r in rs), 1),

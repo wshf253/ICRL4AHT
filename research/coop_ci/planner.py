@@ -489,7 +489,7 @@ def valid_actions(env: CoopEnv, i: int) -> list[str]:
     """Macros that pass the precondition check right now (shown to LLM cooks; condition-invariant)."""
     ex = Executor(env, i)
     many = len(env.pots) > 1
-    cands = [f"fetch {env.ing_name(k)}" for k in sorted(env.piles)] + ["fetch plate"]
+    cands = [f"fetch {env.ing_name(k)}" for k in env.in_display_order(env.piles)] + ["fetch plate"]
     cands += [f"put in {env.pot_name[p]}" for p in env.pots] if many else ["put in pot"]
     cands += [f"plate soup {env.pot_name[p]}" for p in env.pots] if many else ["plate soup"]
     cands += ["deliver", "place on counter", "put back"]

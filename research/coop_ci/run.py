@@ -40,7 +40,7 @@ def write_prompts(cfg: dict, personas: dict, out_dir: str):
         env = CoopEnv(cell["layout"], **{k: v for k, v in {**cfg.get("env", {}), **cell.get("env", {})}.items()
                                          if k != "layout"}).reset(0)
         for pid in cell["personas"]:
-            with open(os.path.join(d, f"human__{cell['layout']}__{pid}.txt"), "w") as f:
+            with open(os.path.join(d, f"human__{cell.get('name', cell['layout'])}__{pid}.txt"), "w") as f:
                 f.write(human_system_prompt(env, personas[pid]["text"]))
         for cond in cfg["conditions"]:
             if cond.get("ego", "llm") != "llm":
@@ -48,7 +48,7 @@ def write_prompts(cfg: dict, personas: dict, out_dir: str):
             c = cond.get("condition", "A0")
             pid = cell["personas"][0]
             label = {"A2": personas[pid]["label"], "A4": personas[mismatched(personas, pid)]["label"]}.get(c, "")
-            with open(os.path.join(d, f"ego__{cond['name']}__{cell['layout']}.txt"), "w") as f:
+            with open(os.path.join(d, f"ego__{cond['name']}__{cell.get('name', cell['layout'])}.txt"), "w") as f:
                 f.write(ego_system_prompt(env, c, cond.get("words", 80), "P-xxxx", label))
 
 

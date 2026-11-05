@@ -467,3 +467,12 @@ def test_exp_b_streams_keep_memory_per_condition_and_freeze_transfer_phases(tmp_
     out2 = run.main([os.path.join(CONFIG_DIR, "expB_memory.yaml"), "--ego-backend", "mock", "--partner-backend",
                      "scripted", "--streams", "2", "--max-steps", "30", "--workers", "4", "--resume", out])
     assert sum(1 for _ in open(os.path.join(out2, "episodes.jsonl"))) == len(eps)
+
+
+def test_display_order_lists_tomato_first_without_changing_the_game():
+    a = CoopEnv("shared_1pot").reset(0)
+    b = CoopEnv("shared_1pot", display_order=[1, 0]).reset(0)
+    assert a.recipe_seq == b.recipe_seq and a.menu() == ["onion+onion+tomato", "onion+tomato+tomato"]
+    assert b.menu() == ["tomato+tomato+onion", "tomato+onion+onion"]
+    assert valid_actions(b, 0)[:2] == ["fetch tomato", "fetch onion"] and "1=tomato, 0=onion" in b.static_map_text()
+    assert b.recipe_str(b.orders[0]) in b.observation_text(0) and "tomato" in b.orders_text().split(":")[1].split("+")[0]

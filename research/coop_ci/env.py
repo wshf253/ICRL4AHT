@@ -165,6 +165,7 @@ class CoopEnv:
         view_radius: Optional[int] = None,
         max_steps: int = 300,
         ingredient_names: Optional[list[str]] = None,
+        display_order: Optional[list[int]] = None,
     ):
         spec = layouts()[layout]
         self.layout_name = layout
@@ -174,6 +175,11 @@ class CoopEnv:
         self.view_radius = view_radius
         self.max_steps = max_steps
         self.ingredient_names = ingredient_names or DEFAULT_INGREDIENT_NAMES
+        # Order in which ingredients are listed in every text (recipes, menu, legend, pots, valid
+        # actions); default by index (onion first). [1, 0] lists tomato first: a control for a
+        # listing-order bias of the model. It changes no game rule.
+        order = list(display_order) if display_order else list(range(len(self.ingredient_names)))
+        self.rank = {k: n for n, k in enumerate(order + [k for k in range(len(self.ingredient_names)) if k not in order])}
         # We handle orders and scoring ourselves -> the env never resamples.
         self.env = OvercookedV2(layout=self.layout, max_steps=10**6, agent_view_size=None,
                                 negative_rewards=True, sample_recipe_on_delivery=False,
@@ -220,11 +226,14 @@ class CoopEnv:
     def ing_name(self, i: int) -> str:
         return self.ingredient_names[i]
 
+    def in_display_order(self, items) -> list:
+        return sorted(items, key=lambda k: self.rank[k])
+
     def recipe_str(self, recipe: list[int]) -> str:
-        return "+".join(self.ing_name(i) for i in sorted(recipe))
+        return "+".join(self.ing_name(i) for i in self.in_display_order(recipe))
 
     def menu(self) -> list[str]:
-        return [self.recipe_str(r) for r in self.recipes]
+        return [self.recipe_str(r) for r in sorted(self.recipes, key=lambda r: [self.rank[k] for k in self.in_display_order(r)])]
 
     def static_map_text(self) -> str:
         sym = {int(StaticObject.EMPTY): ".", int(StaticObject.WALL): "W", int(StaticObject.GOAL): "X",
@@ -240,7 +249,7 @@ class CoopEnv:
         legend = (
             "Legend: '.' floor (walkable); W counter/wall (a W next to floor can hold one item); "
             "P pot; X serving window (deliver dishes here); B plate pile; digits = ingredient piles ("
-            + ", ".join(f"{i}={self.ing_name(i)}" for i in sorted(self.piles)) + f"). Pots: {pots}."
+            + ", ".join(f"{i}={self.ing_name(i)}" for i in self.in_display_order(self.piles)) + f"). Pots: {pots}."
         )
         return "\n".join(rows) + "\n" + legend
 
@@ -571,7 +580,7 @@ class CoopEnv:
         return f" - fits order {' or '.join(map(str, fits))}"
 
     def pot_text(self, status, contents, extra):
-        names = ", ".join(self.ing_name(c) for c in contents) or "empty"
+        names = ", ".join(self.ing_name(c) for c in self.in_display_order(contents)) or "empty"
         if status == "cooking":
             return f"cooking [{names}], {extra} steps left"
         if status == "ready":
