@@ -1,0 +1,13 @@
+# Exp B v2: memory where the partner cannot be read from play. Same streams, schedule and conditions as
+# expB_memory.yaml, but both cooks see only cells within 2 steps (expA_view_check: the true profile adds
+# about +23 / +33 per persona with view radius 2, about +8 with full view). Listing order counterbalanced.
+# Episode summaries for the notes contain only what the ego saw.
+base: expB_memory.yaml
+name: expB_memory_view2
+streams: 16
+env: {max_steps: 300, view_radius: 2}
+conditions:
+  - {name: B0, memory: none}
+  - {name: B1, memory: general}
+  - {name: B2, memory: partner}
+  - {name: B2_oracle, memory: oracle}

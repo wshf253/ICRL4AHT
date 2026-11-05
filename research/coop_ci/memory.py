@@ -31,26 +31,37 @@ KINDS = ("none", "general", "partner", "raw", "oracle")
 
 
 def episode_summary(env: CoopEnv, ego: int, partner_id: str, label: str, max_chars: int = 1400) -> str:
-    """What the ego experienced in one episode, from its own perspective."""
-    dels = [e for e in env.events if e.kind == "deliver"]
-    lines = [f"Episode {label} with partner {partner_id}: team score {env.score:+.0f}, "
-             f"{sum(e.correct for e in dels)} correct and {sum(not e.correct for e in dels)} wrong deliveries."]
+    """What the ego experienced in one episode: only events it observed (with a view radius, what
+    happened within its view), plus the team score, which both cooks see."""
+    seen = list(env.observed[ego])
     who = lambda a: "you" if a == ego else "partner"  # noqa: E731
-    for s in env.soups[:8]:
-        adds = ", ".join(f"{env.ing_name(k)} ({who(a)})" for _, a, k in s.adds)
-        if s.correct is not None:
-            out = f"served by {who(s.delivered_by)}: {'CORRECT' if s.correct else 'WRONG'}"
-        elif s.plated_t is not None:
-            out = "plated, not served"
-        elif s.ready_t is not None:
-            out = f"ready from t={s.ready_t}, never plated"
-        else:
-            out = "not finished"
-        wait = f", waited {s.plated_t - s.ready_t} steps for a plate" if s.plated_t and s.ready_t else ""
-        lines.append(f"- soup {s.idx + 1} ({s.pot}, order of adding): {adds} -> {out}{wait}.")
-    for a, name in ((1 - ego, "Partner"), (ego, "You")):
+    dels = [e for e in seen if e.kind == "deliver"]
+    lines = [f"Episode {label} with partner {partner_id}: team score {env.score:+.0f}; deliveries you saw: "
+             f"{sum(bool(e.correct) for e in dels)} correct, {sum(not e.correct for e in dels)} wrong."]
+    if env.view_radius is not None:
+        lines.append(f"(You only saw what happened within {env.view_radius} cells of you.)")
+    adds: dict = {}          # pot -> adds seen so far for the soup in it
+    carried: dict = {}       # agent -> index of the soup line it plated
+    soups: list = []
+    for e in seen:
+        if e.kind == "pot_add":
+            adds.setdefault(e.extra.get("pot", "pot"), []).append(f"{e.item.split()[-1]} ({who(e.agent)})")
+        elif e.kind == "plate_soup":
+            pot = e.extra.get("pot", "pot")
+            soups.append(f"- soup in {pot}: {', '.join(adds.pop(pot, [])) or 'adds not seen'} -> plated by {who(e.agent)}")
+            carried[e.agent] = len(soups) - 1
+        elif e.kind == "deliver":
+            k = carried.pop(e.agent, None)
+            out = f", served by {who(e.agent)}: {'CORRECT' if e.correct else 'WRONG'}"
+            if k is None:
+                soups.append(f"- a soup{out}")
+            else:
+                soups[k] += out
+    soups += [f"- unfinished in {pot}: {', '.join(a)}" for pot, a in adds.items() if a]
+    lines += soups[:10]
+    for a, name in ((1 - ego, "Partner (what you saw)"), (ego, "You")):
         c = Counter()
-        for e in env.events:
+        for e in seen:
             if e.agent != a:
                 continue
             if e.kind == "fetch":
@@ -58,7 +69,7 @@ def episode_summary(env: CoopEnv, ego: int, partner_id: str, label: str, max_cha
             elif e.kind in ("pot_add", "plate_soup", "deliver", "put_back", "counter_place"):
                 c[{"pot_add": "put into a pot", "plate_soup": "plated a soup", "deliver": "delivered",
                    "put_back": "put an item back", "counter_place": "set an item on a counter"}[e.kind]] += 1
-        lines.append(f"{name}: " + (", ".join(f"{k} x{v}" for k, v in c.most_common()) or "did nothing") + ".")
+        lines.append(f"{name}: " + (", ".join(f"{k} x{v}" for k, v in c.most_common()) or "nothing") + ".")
     return "\n".join(lines)[:max_chars]
 
 

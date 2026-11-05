@@ -255,6 +255,18 @@ pass a gate: the true profile (A2) clearly beats A0 against both personas, listi
 usually out of view on shared_1pot), with full view as the paired reference. If it passes, Exp B v2 adds
 `env: {view_radius: 2}` to `expB_memory.yaml`.
 
+### View check (`expA_view_check.yaml`, 12 episodes per persona and view, listing order counterbalanced)
+
+| A2 - A0 (mean return) | vs onion_supplier | vs tomato_supplier |
+|---|---|---|
+| full view | -1.7 (80 -> 78) | +18 (77 -> 95) |
+| view radius 2 | **+33** (48 -> 82) | **+23** (73 -> 97) |
+
+With a 2-cell view the true profile pays off against both personas (against the first-listed supplier
++38, the other +18), so the gate passes. Exp B v2 (`expB_memory_view2.yaml`): view radius 2, 16 streams,
+B0 / B1 / B2 / B2_oracle, listing order counterbalanced. Episode summaries for the notes now contain only
+events the ego observed (identical to before under full view).
+
 ## Run on the server
 
 ```bash

@@ -273,7 +273,7 @@ class CoopEnv:
         self._open_soup: dict = {}   # pot xy -> Soup still in the pot (filling / cooking / ready)
         self._carried: dict = {}     # agent -> Soup on the plate it holds
         self._on_counter: dict = {}  # counter xy -> Soup set down there on a plate
-        self.observed: list[deque] = [deque(maxlen=200) for _ in range(self.num_agents)]
+        self.observed: list[deque] = [deque(maxlen=2000) for _ in range(self.num_agents)]
         self.order_history = [(0, [list(o) for o in self.orders])]
         return self
 

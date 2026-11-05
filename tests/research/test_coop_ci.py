@@ -498,3 +498,21 @@ def test_counterbalanced_display_alternates_in_grid_and_stream_runs(tmp_path):
     assert {analyze.first_listed(r) for r in eps} == {"first", "second"}
     analyze.main([out])
     assert os.path.exists(os.path.join(out, "analysis", "listed_first.csv"))
+
+
+def test_episode_summary_contains_only_what_the_ego_saw():
+    from research.coop_ci.memory import episode_summary
+    env = CoopEnv("shared_1pot", view_radius=2, max_steps=120).reset(1)
+    epi = Episode(env, 1, 0, ego_policy(PERSONAS, "neutral"), persona_policy(PERSONAS, "onion_supplier"),
+                  PERSONAS["onion_supplier"], record_trace=False)
+    epi.run(120)
+    seen, unseen = set(map(id, env.observed[0])), [e for e in env.events if id(e) not in set(map(id, env.observed[0]))]
+    assert unseen, "with a 2-cell view some partner events happen out of sight"
+    summ = episode_summary(env, 0, "P-1", "E1")
+    assert "only saw what happened within 2 cells" in summ
+    partner_seen = sum(1 for e in env.observed[0] if e.agent == 1 and e.kind == "fetch")
+    partner_all = sum(1 for e in env.events if e.agent == 1 and e.kind == "fetch")
+    assert partner_seen < partner_all
+    took = sum(int(x.split(" x")[1]) for x in summ.split("Partner (what you saw):")[1].split("\n")[0].strip(" .").split(", ")
+               if x.startswith("took"))
+    assert took == partner_seen
