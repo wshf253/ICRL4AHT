@@ -91,7 +91,7 @@ def _zero_counts() -> dict:
     return {"decisions": Counter(), "parse_fail": Counter(), "fallback": Counter(), "fail": {0: Counter(), 1: Counter()},
             "wait_steps": Counter(), "ego_idle_useful": 0, "blocking_steps": 0, "dup_subtask_steps": 0,
             "dup_ingredient": 0, "surplus_plate": 0, "wrong_soup_add": Counter(), "comp_opp": 0, "comp_match": 0,
-            "steps": 0, "decision_points": Counter(), "unrecovered": Counter()}
+            "steps": 0, "decision_points": Counter(), "unrecovered": Counter(), "ready_both_hold_steps": 0}
 
 
 class Episode:
@@ -228,6 +228,10 @@ class Episode:
             c["ego_idle_useful"] += 1
         if sg[0] == sg[1] and sg[0] not in NO_DUP:
             c["dup_subtask_steps"] += 1
+        # Hold-and-wait: a soup is ready but both cooks hold an ingredient (nobody can plate it).
+        if all(is_ingredient(env.inventory(i)) for i in (0, 1)) and any(
+                env.pot_status(p)[0] == "ready" for p in env.pots):
+            c["ready_both_hold_steps"] += 1
         actions = {i: self.ex[i].act() for i in (0, 1)}
         for i in (0, 1):  # a waiting cook standing where the other needs to go steps aside
             j = 1 - i
@@ -313,11 +317,16 @@ class Episode:
             "return": env.score - self.score0, "n_correct": len(good), "n_wrong": len(dels) - len(good),
             "first_correct_t": (good[0].t - self.t0) if good else None, "steps": c["steps"],
             "ready_idle_steps": sum(ready_idle), "ego_idle_while_useful": c["ego_idle_useful"],
+            "ready_both_hold_steps": c["ready_both_hold_steps"],
             "wait_frac": {"ego": round(c["wait_steps"][ego] / T, 4), "partner": round(c["wait_steps"][par] / T, 4)},
             "blocking_rate": round(c["blocking_steps"] / T, 4), "dup_subtask_rate": round(c["dup_subtask_steps"] / T, 4),
             "waste": {"dup_ingredient": c["dup_ingredient"], "surplus_plate": c["surplus_plate"],
                       "wrong_soup_add": {"ego": c["wrong_soup_add"][ego], "partner": c["wrong_soup_add"][par]},
-                      "counter_items_end": len(env.counter_items())},
+                      "counter_items_end": len(env.counter_items()),
+                      "counter_places": {r: sum(1 for e in env.events if e.t > self.t0 and e.kind == "counter_place" and e.agent == i)
+                                         for r, i in (("ego", ego), ("partner", par))},
+                      "put_backs": {r: sum(1 for e in env.events if e.t > self.t0 and e.kind == "put_back" and e.agent == i)
+                                    for r, i in (("ego", ego), ("partner", par))}},
             "compliance": {"opportunities": c["comp_opp"], "matches": c["comp_match"],
                            "rate": round(c["comp_match"] / c["comp_opp"], 4) if c["comp_opp"] else None},
             "decisions": dec, "failures": fails,

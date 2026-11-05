@@ -142,6 +142,31 @@ Scripted cooks use it only when no counter is free, and serve a wrong dish (-20)
 set aside; scripted Gate 0 results are unchanged. A1/A1c output caps were raised (words x 4 + 160
 tokens, still equal for both) after 53 truncated A1c replies. The pilot now uses 10 episodes per cell.
 
+## Exp A pilot, second run (with put back; 10 episodes per cell; mean return [95% CI])
+
+| condition | shared / onion | shared / tomato | split / onion | split / tomato |
+|---|---|---|---|---|
+| A0 | 20 [6, 34] | 98 [70, 124] | 20 [4, 42] | 68 [46, 88] |
+| A1 | 44 | 84 | 30 | 70 |
+| A1c | 46 | 104 | 46 | 68 |
+| A2 true profile | **78 [54, 104]** | 88 | **78 [60, 96]** | 76 |
+| A3 partner's macro | 50 | 106 | 80 | 58 |
+| A4 wrong profile | 24 | 96 | 24 | 32 [8, 58] |
+| ref complementary / neutral / conflicting | 134 / 122 / 94 | 136 / 134 / 112 | 104 / 94 / 68 | 110 / 106 / 82 |
+
+Read-off: (1) A0 fails against onion_supplier only (20 vs 68-98 against tomato_supplier). Its
+ready soups sat 183-202 of 300 steps: both cooks hold an ingredient for the next soup while the soup
+waits, and nobody plates (top start failure: "put in pot" on a cooking/ready pot, 1,119 times).
+The complement of a supplier is "fetch the other ingredient, then plate and serve"; A0 does not
+find it. (2) The true profile fixes most of that (A2 +58 on both layouts); a wrong profile does not
+(A4 ~ A0) and hurts against tomato_supplier on split_1pot (32 vs 68). (3) Against tomato_supplier A0
+already does the right thing and A2 adds nothing. (4) A1 ~ A1c: no gain from partner-structured
+reasoning beyond generic reasoning. (5) Every LLM condition stays well below the scripted
+references (best LLM cell 106 vs 104-136), so execution also limits. Counters still fill up (items
+left at the end: 5-15 in LLM conditions vs 0-3 for scripted); `analyze` now also reports counter
+placements and put-backs per cook, and `ready_both_hold` (steps with a ready soup while both cooks
+hold an ingredient).
+
 ## Run on the server
 
 ```bash

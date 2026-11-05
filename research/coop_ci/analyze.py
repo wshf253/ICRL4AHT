@@ -68,10 +68,15 @@ def summary_rows(eps):
             "infra_after_retry_ego/partner": f"{fmt(ae, 3)}/{fmt(ap, 3)}{flag}",
             "ego_idle_useful": fmt(mean(r["ego_idle_while_useful"] for r in rs)),
             "ready_idle": fmt(mean(r["ready_idle_steps"] for r in rs)),
+            "ready_both_hold": fmt(mean(r.get("ready_both_hold_steps", float("nan")) for r in rs)),
             "dup_subtask": fmt(mean(r["dup_subtask_rate"] for r in rs), 3),
             "blocking": fmt(mean(r["blocking_rate"] for r in rs), 3),
             "dup_ing": fmt(mean(r["waste"]["dup_ingredient"] for r in rs), 2),
             "counters_end": fmt(mean(r["waste"]["counter_items_end"] for r in rs), 1),
+            "placed/put_back_ego": "/".join(fmt(mean(r["waste"].get(k, {}).get("ego", 0) for r in rs), 1)
+                                            for k in ("counter_places", "put_backs")),
+            "placed/put_back_partner": "/".join(fmt(mean(r["waste"].get(k, {}).get("partner", 0) for r in rs), 1)
+                                                for k in ("counter_places", "put_backs")),
             "wrong_adds": fmt(mean(r["waste"]["wrong_soup_add"]["ego"] + r["waste"]["wrong_soup_add"]["partner"] for r in rs), 2),
             "calls_ego/partner": f"{fmt(mean(r['usage']['ego']['calls'] for r in rs), 0)}/{fmt(mean(r['usage']['partner']['calls'] for r in rs), 0)}",
             "out_tok_ego": fmt(mean(r["usage"]["ego"]["completion_tokens"] / max(1, r["usage"]["ego"]["calls"]) for r in rs), 0),
