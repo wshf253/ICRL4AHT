@@ -7,6 +7,8 @@ Conditions (same character budget, rendered into the ego's MEMORY block):
   partner  B2  a structured note per partner id: tendencies with conditions of applicability,
                evidence for / against (episode labels) and confidence, plus open questions
   raw      B3  the most recent episode summaries with this partner, truncated to the budget; no LLM update
+  oracle   B2* the true persona label of this partner id from the first episode on, never updated: the
+               ceiling for what a correct partner note can do (a privileged control, like A2 in Exp A)
 
 Updates run after an episode only when the stream schedule allows it (held-out and return episodes
 never update: strict transfer track). Every version is written to disk with the update prompt and
@@ -25,7 +27,7 @@ from .env import CoopEnv
 from .llm import Backend, Usage, parse_json
 from .policy import stable_seed
 
-KINDS = ("none", "general", "partner", "raw")
+KINDS = ("none", "general", "partner", "raw", "oracle")
 
 
 def episode_summary(env: CoopEnv, ego: int, partner_id: str, label: str, max_chars: int = 1400) -> str:
@@ -122,8 +124,8 @@ class Memory:
         """Fold one episode into the notes. Returns a log record (also when nothing changes)."""
         st = self.state
         log = {"kind": self.kind, "partner_id": partner_id, "episode": label, "version_in": st["version"]}
-        if self.kind == "none":
-            return {**log, "status": "no_memory"}
+        if self.kind in ("none", "oracle"):
+            return {**log, "status": "no_memory" if self.kind == "none" else "oracle (fixed)"}
         if self.kind == "raw":
             st["raw"].setdefault(partner_id, []).append(summary)
             st["version"] += 1

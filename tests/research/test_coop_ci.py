@@ -437,7 +437,7 @@ def test_exp_b_streams_keep_memory_per_condition_and_freeze_transfer_phases(tmp_
     out = run.main([os.path.join(CONFIG_DIR, "expB_memory.yaml"), "--ego-backend", "mock", "--partner-backend",
                     "scripted", "--streams", "2", "--max-steps", "30", "--workers", "4", "--out", str(tmp_path)])
     eps = [json.loads(l) for l in open(os.path.join(out, "episodes.jsonl"))]
-    assert len(eps) == 2 * 4 * 10
+    assert len(eps) == 2 * 5 * 10
     by = {(r["condition"], r["stream"], r["k"]): r for r in eps}
     for s in (0, 1):
         # Paired design: same seed, seat, partner and orders in every condition.
@@ -456,9 +456,13 @@ def test_exp_b_streams_keep_memory_per_condition_and_freeze_transfer_phases(tmp_
         assert by[("B1", s, 5)]["memory_in"]["chars"] > 0                         # general notes carry over
     secret = [x for p in PERSONAS.values() for x in (p["label"], p["text"])] + list(PERSONAS)
     for r in eps:
-        assert not any(x in r["memory_in"]["text"] for x in secret)
+        if r["memory_kind"] == "oracle":  # privileged control: exactly the true label, from the start
+            assert r["memory_in"]["text"].endswith(PERSONAS[r["persona"]]["label"]) and r["memory_in"]["version"] == 0
+        else:
+            assert not any(x in r["memory_in"]["text"] for x in secret)
     analyze.main([out])
     assert os.path.exists(os.path.join(out, "analysis", "stream_phases.csv"))
+    assert "stream 0 / B2 / into E9" in open(os.path.join(out, "analysis", "notes.md")).read()
     # Resume: nothing left to run, memory state restored from disk.
     out2 = run.main([os.path.join(CONFIG_DIR, "expB_memory.yaml"), "--ego-backend", "mock", "--partner-backend",
                      "scripted", "--streams", "2", "--max-steps", "30", "--workers", "4", "--resume", out])

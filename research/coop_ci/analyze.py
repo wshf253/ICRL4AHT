@@ -254,6 +254,25 @@ def stream_rows(eps, ref):
     return rows, prow, curve, mem
 
 
+def note_samples(eps) -> str:
+    """The notes each learning condition carried into the first A_return episode (partner A, all
+    updates done) and into the last B episode, next to the true personas (evaluator only)."""
+    out = ["# Notes carried by the ego (true personas shown for the evaluator only)\n"]
+    conds = sorted({r["condition"] for r in eps if r["memory_kind"] in ("general", "partner", "raw")})
+    for s in sorted({r["stream"] for r in eps}):
+        rs = {(r["condition"], r["phase"], r["k"]): r for r in eps if r["stream"] == s}
+        ret = min((k for (c, ph, k) in rs if ph == "A_return"), default=None)
+        lastb = max((k for (c, ph, k) in rs if ph == "B"), default=None)
+        for c in conds:
+            for k, who in ((ret, "partner A"), (lastb, "partner B")):
+                r = rs.get(next((key for key in rs if key[0] == c and key[2] == k), None))
+                if r is None:
+                    continue
+                out.append(f"## stream {s} / {c} / into E{k + 1} ({who} = {r['persona']}, {r['partner_id']})\n")
+                out.append("```\n" + (r["memory_in"]["text"] or "(empty)") + "\n```\n")
+    return "\n".join(out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -278,6 +297,10 @@ def main(argv=None):
         print(md(curve, list(curve[0].keys())) + "\n")
         print("## Memory\n")
         print(md(mem, list(mem[0].keys())) + "\n")
+        notes = note_samples(eps)
+        with open(os.path.join(out, "notes.md"), "w") as f:
+            f.write(notes)
+        print(f"Final notes per stream (what the ego carried into the return / last B episode): {out}/notes.md\n")
     summ = summary_rows(eps)
     write_csv(os.path.join(out, "summary.csv"), summ)
     print("## Summary\n")

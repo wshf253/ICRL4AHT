@@ -6,6 +6,7 @@
 # transfer track). Partners A/B swap on odd streams; partner ids are opaque. Every condition sees the
 # same seeds, seats, orders and partners; only the MEMORY block differs.
 #   B0 none | B1 general lessons (no partner-specific claims) | B2 structured partner note | B3 raw history
+#   B2_oracle the true persona label as the note (privileged ceiling)
 # Ego planner = A0 (A1 gave no gain over A0 or A1c in the Exp A pilot).
 name: expB_memory
 mode: stream
@@ -28,3 +29,6 @@ conditions:
   - {name: B1, memory: general}
   - {name: B2, memory: partner}
   - {name: B3, memory: raw}
+  # Privileged control: the true persona label as the note for each partner id (never updated).
+  # Shows how much a correct partner note can help inside a stream.
+  - {name: B2_oracle, memory: oracle}

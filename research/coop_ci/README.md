@@ -194,6 +194,24 @@ and memory size and update failures.
 DP_SIZE=2 MAX_NUM_SEQS=32 lab-run --new --spare --gpus 2 --cpus 32 --mem 160G -- bash scripts/run_qwen38_coop.sh research/coop_ci/configs/expB_memory.yaml --workers 64
 ```
 
+### Exp B, first run (6 streams; mean return per phase, paired difference vs B0 with 95% CI over streams)
+
+| condition | A (learning) | A_heldout (transfer) | B (new partner) | A_return (retention) |
+|---|---|---|---|---|
+| B0 none | 77.8 | 125.0 | 88.9 | 78.3 |
+| B1 general | +4.4 [-11, 22] | 0.0 [-20, 27] | -2.2 [-33, 24] | +10.0 [-18, 40] |
+| B2 partner note | +7.8 [-19, 37] | +10.0 [-12, 43] | -17.8 [-36, 0] | +1.7 [-25, 23] |
+| B3 raw history | -20.0 [-53, 13] | -11.7 [-38, 13] | -1.1 [-19, 20] | +6.7 [-43, 50] |
+
+No difference is resolved with 6 streams (per-stream phase means vary by +-30). By persona, memory
+matters only against onion_supplier: B1 cut the steps a ready soup waited from 113 (B0) to 44 and the
+hold-and-wait steps from 49 to 14 (return 61 -> 77), B2 to 74 / 29 (return 65); against
+tomato_supplier B0 is already best (121). So far the gain looks like generic task learning (B1 >= B2),
+which the plan's decision rule reads as "strengthen controls". Next run: 12 streams (6 more, resumed in
+the same run directory) and the privileged control `B2_oracle` (the true persona label as the note),
+which shows what a correct partner note can do inside a stream; `analyze` writes the notes each
+condition carried (analysis/notes.md) to check what B1/B2 actually learnt.
+
 ## Run on the server
 
 ```bash

@@ -76,7 +76,8 @@ def run_stream_episode(cfg, cond, s, ep, roles, ids, personas, backends, mem, me
     env.reset(seed)
     seat = (s + ep["k"]) % 2
     usage = {"ego": Usage(), "partner": Usage()}
-    mem_text = mem.render(partner_id)
+    mem_text = (f"Partner {partner_id}: {personas[pid]['label']}" if mem.kind == "oracle"
+                else mem.render(partner_id))
     version_in = mem.state["version"]
     ego = LLMEgoPolicy(backends.get(cond.get("backend", cfg["backends"]["ego"])), usage["ego"],
                        condition=cfg.get("ego", {}).get("condition", "A0"), words=cfg.get("ego", {}).get("words", 80),
