@@ -39,6 +39,31 @@ qwen3.8-27b-partner:
   extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}
   chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS
 
+# Low-temperature variants (noise check): identical to the entries above except temperature.
+qwen3.8-27b-t02:
+  type: openai_compat
+  base_url_env: ICRL_LLM_BASE_URL
+  base_url: http://127.0.0.1:8000/v1
+  model_env: ICRL_LLM_MODEL
+  model: qwen3.8-27b
+  api_key_env: ICRL_LLM_API_KEY
+  json_mode: true
+  params: {temperature: 0.2, top_p: 0.8, max_tokens: 512}
+  extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}
+  chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS
+
+qwen3.8-27b-partner-t02:
+  type: openai_compat
+  base_url_env: ICRL_LLM_BASE_URL
+  base_url: http://127.0.0.1:8000/v1
+  model_env: ICRL_LLM_MODEL
+  model: qwen3.8-27b
+  api_key_env: ICRL_LLM_API_KEY
+  json_mode: true
+  params: {temperature: 0.2, top_p: 0.8, max_tokens: 160}
+  extra_body: {top_k: 20, min_p: 0.0, chat_template_kwargs: {enable_thinking: false}}
+  chat_template_kwargs_env: COOP_CHAT_TEMPLATE_KWARGS
+
 # --- Stage 2: frontier API (fill in when switching) -------------------------------------------
 frontier:
   type: openai_compat

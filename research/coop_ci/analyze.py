@@ -365,6 +365,7 @@ def revision_rows(eps):
     for r in post:
         by[(r["regime"], r["rule"])].setdefault(r["stream"], {})[r["k"]] = r
     curve, total, cost, notes = [], [], [], []
+    ks_eval = ks[1:] or ks
     pre_mean = {s: mean(v) for s, v in pre.items() if v}
     for reg, rule in chains:
         row = {"regime": reg, "rule": rule, "prefix (mean)": fmt(mean(pre_mean.values()) if pre_mean else None, 0)}
@@ -372,11 +373,13 @@ def revision_rows(eps):
             v = [d[k]["return"] for d in by[(reg, rule)].values() if k in d]
             row[f"E{k + 1}"] = fmt(mean(v) if v else None, 0)
         curve.append(row)
-        sums = {s: sum(x["return"] for x in d.values()) for s, d in by[(reg, rule)].items() if len(d) == len(ks)}
+        # The rules can only differ after the first post-prefix episode: going into it every chain carries
+        # the same cloned note, seeds and partner. That episode is excluded from the rule comparisons.
+        sums = {s: sum(d[k]["return"] for k in ks_eval) for s, d in by[(reg, rule)].items() if all(k in d for k in ks)}
         lo, hi = boot_ci(list(sums.values()))
         trow = {"regime": reg, "rule": rule, "streams": len(sums),
-                "post-change return (sum)": f"{fmt(mean(sums.values()) if sums else None)} [{fmt(lo)}, {fmt(hi)}]"}
-        static = {s: sum(x["return"] for x in d.values()) for s, d in by[(reg, "static")].items() if len(d) == len(ks)}
+                f"return E{ks_eval[0] + 1}-E{ks_eval[-1] + 1} (sum)": f"{fmt(mean(sums.values()) if sums else None)} [{fmt(lo)}, {fmt(hi)}]"}
+        static = {s: sum(d[k]["return"] for k in ks_eval) for s, d in by[(reg, "static")].items() if all(k in d for k in ks)}
         if rule != "static" and static:
             dd, (dl, dh), n = paired_diff(sums, static)
             trow["vs static (paired)"] = f"{fmt(dd)} [{fmt(dl)}, {fmt(dh)}]"
@@ -392,7 +395,7 @@ def revision_rows(eps):
         trow["episodes to recover (mean)"] = fmt(mean(rec) if rec else None, 1)
         total.append(trow)
         if reg != "stable":
-            stable = {s: sum(x["return"] for x in d.values()) for s, d in by[("stable", rule)].items() if len(d) == len(ks)}
+            stable = {s: sum(d[k]["return"] for k in ks_eval) for s, d in by[("stable", rule)].items() if all(k in d for k in ks)}
             dd, (dl, dh), n = paired_diff(stable, sums)
             cost.append({"regime": reg, "rule": rule, "streams": n,
                          "revision cost = stable - regime (sum over post episodes)": f"{fmt(dd)} [{fmt(dl)}, {fmt(dh)}]"})
@@ -405,14 +408,29 @@ def revision_rows(eps):
                     c["A" if v == a_ing.get(s) else ("new" if v in ("onion", "tomato") else "-")] += 1
             nrow[f"into E{k + 1}"] = f"A {c['A']} / new {c['new']} / - {c['-']}"
         notes.append(nrow)
-    return curve, total, cost, notes
+    # Noise floor: in the first post-prefix episode the rules of one regime get identical inputs (cloned
+    # note, seeds, partner); any difference between them is sampling noise.
+    noise = []
+    for reg in sorted({c[0] for c in chains}):
+        rules = [u for (g, u) in chains if g == reg]
+        diffs = []
+        for s in {s for u in rules for s in by[(reg, u)]}:
+            v = [by[(reg, u)][s][ks[0]]["return"] for u in rules if ks[0] in by[(reg, u)].get(s, {})]
+            diffs += [abs(a - b) for i, a in enumerate(v) for b in v[i + 1:]]
+        if diffs:
+            noise.append({"regime": reg, f"E{ks[0] + 1}: identical inputs across rules": f"{len(diffs)} pairs",
+                          "mean |difference| between rules": fmt(mean(diffs), 1),
+                          "pairs differing by >= 40": sum(d >= 40 for d in diffs)})
+    return curve, total, cost, notes, noise
 
 
 SECTIONS = {
     # Exp C (revision runs)
     "c_curve": "Exp C: return by episode (mean over streams; the first episodes are the shared prefix)",
-    "c_total": "Exp C: return after the change (sum over the post-prefix episodes, 95% CI over streams)",
-    "c_cost": "Exp C: revision cost = stable minus regime, same rule (paired by stream)",
+    "c_total": "Exp C: return after the first post-change update (sum, 95% CI over streams; the first post-prefix "
+               "episode is excluded: all rules start it with the same cloned note)",
+    "c_noise": "Exp C: noise floor - the first post-prefix episode, where all rules have identical inputs",
+    "c_cost": "Exp C: revision cost = stable minus regime, same rule (paired by stream, same episodes as c_total)",
     "c_notes": "Exp C: what the note says going into each episode: A's ingredient / the new persona's / neither",
     # Exp B (stream runs)
     "phases": "Mean return per phase (95% CI over streams)",
@@ -429,7 +447,7 @@ SECTIONS = {
     "start_failures": "Actions that could not start (from traces)",
     "compliance": "Persona compliance misses (from traces)",
 }
-DEFAULT_SHOW = {"revision": ["c_curve", "c_total", "c_cost", "c_notes"],
+DEFAULT_SHOW = {"revision": ["c_curve", "c_total", "c_cost", "c_notes", "c_noise"],
                 "stream": ["phases", "paired", "early", "memory", "notes"],
                 "grid": ["paired", "listed", "summary"]}
 ALIASES = {"diagnostics": ["failures", "start_failures", "compliance"], "expc": DEFAULT_SHOW["revision"],
@@ -481,11 +499,12 @@ def main(argv=None):
             tables.setdefault(sec, []).append((title, rows))
 
     if kind == "revision":
-        curve, total, cost, notes = revision_rows(eps)
+        curve, total, cost, notes, noise = revision_rows(eps)
         add("c_curve", "revision_curve", SECTIONS["c_curve"], curve)
         add("c_total", "revision_total", SECTIONS["c_total"], total)
         add("c_cost", "revision_cost", SECTIONS["c_cost"], cost)
         add("c_notes", "revision_notes", SECTIONS["c_notes"] + " (keyword heuristic)", notes)
+        add("c_noise", "revision_noise", SECTIONS["c_noise"], noise)
     elif kind == "stream":
         ref = a.ref or "B0"
         rows, prow, curve, mem = stream_rows(eps, ref)

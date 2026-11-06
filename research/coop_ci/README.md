@@ -317,6 +317,23 @@ no ingredient, so the gate rarely engaged (switch: 1 of 8 revised). Exp C v2 (`e
 notes state their main belief explicitly (`verdict_field`), which drives the gate and the note-tracking
 table, and 16 streams. Run it in a new directory (the config changed).
 
+### Exp B v3 (24 streams) and Exp C v2: the earlier effects did not hold up
+
+Exp B v3 (A x3 -> B x3 -> A_return x4, paired vs B1): B2 - B1 at A_return +2.3 [-10, 14] (v2: +18), first
+100 steps +1.9 [-2, 6]; with the new partner B both B0 (-18 [-33, -2]) and B2 (-16 [-28, -4]) are below
+B1. So general lessons help, and partner-specific notes add nothing measurable beyond them; the v2
+retention effect (+32.5 vs B0) was one of 12 comparisons and did not replicate at that size.
+
+Exp C: in the first post-prefix episode every rule of a regime has identical inputs (cloned note, seeds,
+partner), yet the rules differed by up to 55 points on average (v2 switch: static 25, evidence 80,
+reflection 78). That episode was counted in the comparison; it is now excluded (`c_total` sums the
+episodes after the first update) and reported as a noise floor (`c_noise`). From the per-episode means,
+E5-E8: switch reflection - static +48 (v1) / +55 (v2), evidence - static +29 / +31; exception reflection
+-87 (v1) / +1 (v2). Updating after a lasting switch helps in both runs, but the notes rarely come to name the
+new persona (reflection's notes mostly lose the claim; evidence's keep A's): updating mostly removes the
+outdated belief rather than learning the new one. `noise_check.yaml` measures the episode-level noise
+directly (identical conditions run twice) at temperature 0.7 and 0.2.
+
 ## Run on the server
 
 ```bash

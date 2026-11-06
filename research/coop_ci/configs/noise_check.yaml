@@ -1,0 +1,18 @@
+# How noisy is one episode? Exp C showed that chains with identical inputs (same note, seeds, partner)
+# differ by tens of points in the same episode. Here every condition is run twice with identical seeds
+# (A0 and its repeat), at the default temperature 0.7 and at 0.2 for both cooks. The difference between a
+# condition and its repeat is pure noise: analyze --ref A0_t07 / --ref A0_t02 (paired tables), and check
+# persona compliance at 0.2. Setting of Exp B v2/C (2-cell view, listing order counterbalanced).
+name: noise_check
+seed: 0
+env: {max_steps: 300}
+counterbalance_display: true
+backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner}
+cells:
+  - {name: shared_1pot_view2, layout: shared_1pot, env: {view_radius: 2}, personas: [onion_supplier, tomato_supplier]}
+conditions:
+  - {name: A0_t07, condition: A0}
+  - {name: A0_t07_repeat, condition: A0}
+  - {name: A0_t02, condition: A0, backend: qwen3.8-27b-t02, partner: qwen3.8-27b-partner-t02}
+  - {name: A0_t02_repeat, condition: A0, backend: qwen3.8-27b-t02, partner: qwen3.8-27b-partner-t02}
+episodes_per_cell: 12
