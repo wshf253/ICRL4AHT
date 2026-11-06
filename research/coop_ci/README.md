@@ -302,6 +302,21 @@ revision cost (stable minus regime, same rule), episodes to recover (2 consecuti
 stream's prefix mean) and what each note says going into each episode (A's ingredient / the new
 persona's / neither): unnecessary switches = "new" after the exception, revision = "new" after the switch.
 
+### Exp C, first run (8 streams): post-change return, paired vs static
+
+| regime | reflection | evidence |
+|---|---|---|
+| switch | **+72.5 [35, 115]** | +65 [-10, 133] |
+| exception | **-82.5 [-155, -15]** | -45 [-118, 33] |
+| stable | +22.5 [-45, 83] | +20 [-58, 90] |
+
+Free rewriting (reflection) pays off after a lasting switch and costs after a one-off exception (its notes
+flip to the exception persona; the next episode drops to 18). The evidence rule lies in between, as
+designed, but unresolved; its notes never flipped in the exception regime, but about half the notes named
+no ingredient, so the gate rarely engaged (switch: 1 of 8 revised). Exp C v2 (`expC_revision.yaml` now):
+notes state their main belief explicitly (`verdict_field`), which drives the gate and the note-tracking
+table, and 16 streams. Run it in a new directory (the config changed).
+
 ## Run on the server
 
 ```bash

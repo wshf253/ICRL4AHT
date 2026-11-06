@@ -51,7 +51,7 @@ def make_memory(cfg, cond, backends) -> tuple:
     mc = cfg.get("memory", {})
     mem = Memory(cond.get("memory", "none"), budget=mc.get("budget", 1500),
                  backend=backends.get(cfg["backends"].get("memory", cfg["backends"]["ego"])), usage=usage,
-                 rule=cond.get("rule", "standard"), m=mc.get("m", 2))
+                 rule=cond.get("rule", "standard"), m=mc.get("m", 2), verdict_field=mc.get("verdict_field", False))
     return mem, usage
 
 

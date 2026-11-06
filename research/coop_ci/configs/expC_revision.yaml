@@ -11,7 +11,7 @@
 name: expC_revision
 mode: stream
 seed: 0
-streams: 8
+streams: 16
 layout: shared_1pot
 family_pair: [onion_supplier, tomato_supplier]
 train_recipes: mixed_two
@@ -19,7 +19,9 @@ counterbalance_display: true
 env: {max_steps: 300, view_radius: 2}
 backends: {ego: qwen3.8-27b, partner: qwen3.8-27b-partner, memory: qwen3.8-27b}
 ego: {condition: A0}
-memory: {budget: 1500, m: 2}
+# verdict_field: every note states its main belief ("usually supplies onion / tomato / unclear"), so the
+# evidence gate and the note-tracking table do not depend on keywords (v1: half the notes named neither).
+memory: {budget: 1500, m: 2, verdict_field: true}
 prefix:
   - {phase: prefix, partner: A, n: 3, update: true}
 regimes:

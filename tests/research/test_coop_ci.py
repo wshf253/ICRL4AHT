@@ -568,3 +568,22 @@ def test_exp_c_clones_the_prefix_note_and_switches_the_persona_behind_one_id(tmp
         assert len({r[("switch/static", k)]["memory_in"]["version"] for k in range(3, 8)}) == 1
     analyze.main([out])
     assert os.path.exists(os.path.join(out, "analysis", "revision_total.csv"))
+
+
+def test_explicit_main_belief_drives_the_verdict_and_the_gate():
+    from research.coop_ci.memory import Memory, note_verdict, render_partner_note
+
+    class Writer(MockBackend):
+        def chat(self, messages, max_tokens=None, seed=None, json_mode=None):
+            assert '"usually_supplies"' in messages[0]["content"]
+            return LLMResult(json.dumps({"tendencies": [{"claim": "Waits a lot", "conditions_of_applicability": "-",
+                                                         "evidence_for": [], "evidence_against": [], "confidence": 0.5}],
+                                         "open_questions": [], "usually_supplies": "tomato"}), finish_reason="stop")
+    note = {"tendencies": [{"claim": "Fetches tomatoes and onions"}], "usually_supplies": "onion"}
+    assert note_verdict(render_partner_note("P-1", note)) == "onion"   # the explicit belief wins over keywords
+    mem = Memory("partner", backend=Writer(), rule="evidence", m=2, verdict_field=True)
+    mem.state["partner"]["P-1"] = note
+    mem.update("s", "P-1", "E4", ("x",))
+    assert note_verdict(mem.render("P-1")) == "onion" and "E4: looked like tomato" in mem.render("P-1")
+    mem.update("s", "P-1", "E5", ("y",))
+    assert note_verdict(mem.render("P-1")) == "tomato"

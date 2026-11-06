@@ -99,9 +99,19 @@ RULES = ("standard", "static", "reflection", "evidence")
 CLAIM_VERBS = ("fetch", "bring", "brought", "suppl", "add", "carr", "get", "grab", "take", "took", "focus", "prefer", "handle")
 
 
+VERDICT_ADDON = (' Also state your main belief in one field, "usually_supplies": "onion", "tomato" or "unclear" '
+                 '(the ingredient this partner mostly fetches for the pot).')
+VERDICT_LINE = "Main belief: usually supplies "
+
+
 def note_verdict(text: str) -> str:
     """Which ingredient a partner note says the partner usually supplies: 'onion', 'tomato', 'both' or
-    'none' (keyword heuristic over the tendency lines of a rendered note)."""
+    'none'. Uses the note's explicit main belief when it has one (verdict_field), else a keyword
+    heuristic over the tendency lines of a rendered note."""
+    for line in text.splitlines():
+        if line.startswith(VERDICT_LINE):
+            v = line[len(VERDICT_LINE):].strip(" .").lower()
+            return v if v in ("onion", "tomato") else "none"
     votes = Counter()
     for line in text.lower().splitlines():
         if not line.lstrip().startswith("-") or not any(v in line for v in CLAIM_VERBS):
@@ -118,6 +128,8 @@ def note_verdict(text: str) -> str:
 
 def render_partner_note(pid: str, note: dict) -> str:
     out = [f"Partner {pid}:"]
+    if note.get("usually_supplies"):
+        out.append(f"{VERDICT_LINE}{note['usually_supplies']}")
     for t in note.get("tendencies", [])[:8]:
         if not isinstance(t, dict):
             continue
@@ -139,7 +151,8 @@ class Memory:
     """The notes of one (stream, condition). State is plain JSON, saved after every episode."""
 
     def __init__(self, kind: str, budget: int = 1500, backend: Optional[Backend] = None,
-                 usage: Optional[Usage] = None, max_tokens: int = 1000, rule: str = "standard", m: int = 2):
+                 usage: Optional[Usage] = None, max_tokens: int = 1000, rule: str = "standard", m: int = 2,
+                 verdict_field: bool = False):
         """`rule` (partner notes, Exp C): standard = the B2 update; static = no updates; reflection =
         free rewrite each episode; evidence = the B2 update, but the main tendency may change only after
         `m` consecutive episodes whose proposed note contradicts it (a single deviation is kept as an
@@ -150,6 +163,7 @@ class Memory:
             raise ValueError(f"unknown update rule {rule}")
         self.kind, self.budget, self.backend, self.usage, self.max_tokens = kind, budget, backend, usage, max_tokens
         self.rule, self.m = rule, m
+        self.verdict_field = verdict_field  # Exp C: the note states its main belief explicitly
         self.state = {"version": 0, "general": "", "partner": {}, "raw": {}, "streak": {}}
 
     def render(self, partner_id: str) -> str:
@@ -187,6 +201,8 @@ class Memory:
             old = st["general"] or "(none yet)"
         else:
             system = (REFLECT_SYS if self.rule == "reflection" else PARTNER_SYS).format(pid=partner_id, budget=self.budget)
+            if self.verdict_field:
+                system += VERDICT_ADDON
             note = st["partner"].get(partner_id)
             old = json.dumps(note) if note else "(none yet)"
         user = f"YOUR CURRENT NOTES:\n{old}\n\nWHAT HAPPENED IN THE EPISODE THAT JUST ENDED:\n{summary}"
@@ -200,6 +216,9 @@ class Memory:
             st["general"] = js["notes"].strip()[:self.budget]
         elif self.kind == "partner" and isinstance(js.get("tendencies"), list):
             proposal = {"tendencies": js["tendencies"], "open_questions": js.get("open_questions", [])}
+            if self.verdict_field:
+                v = str(js.get("usually_supplies", "unclear")).strip().lower()
+                proposal["usually_supplies"] = v if v in ("onion", "tomato") else "unclear"
             old_note = st["partner"].get(partner_id)
             if self.rule == "evidence" and old_note:
                 gate = self._evidence_gate(partner_id, old_note, proposal, label)
